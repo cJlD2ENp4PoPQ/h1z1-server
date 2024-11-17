@@ -138,6 +138,7 @@ export class ConstructionManager {
     // disallow construction stacking
     // world constructions may not be placed within 1 radius, this problem wont affect stuff inside any foundation
     if (this.allowStackedPlacement) return false;
+    console.info("check stacked placement")
     if (
       !Number(parentObjectCharacterId) &&
       !this.overridePlacementItems.includes(itemDefinitionId)
@@ -297,6 +298,7 @@ export class ConstructionManager {
     ) {
       return true;
     }
+    console.log("placement out of range");
     return false;
   }
 
@@ -2094,6 +2096,7 @@ export class ConstructionManager {
       case Items.FOUNDATION_EXPANSION:
       case Items.GROUND_TAMPER:
         if (!this.allowStackedPlacement) {
+          console.info("placement hides entites");
           return false;
         }
     }
@@ -2588,8 +2591,10 @@ export class ConstructionManager {
       parentFoundation.itemDefinitionId == Items.SHACK ||
       parentFoundation.itemDefinitionId == Items.SHACK_BASIC ||
       parentFoundation.itemDefinitionId == Items.SHACK_SMALL
-    )
+    ) {
+      console.log("placement in secured area");
       return false;
+    }
     if (
       !(construction instanceof LootableConstructionEntity) &&
       (parentFoundation.itemDefinitionId == Items.FOUNDATION ||
@@ -2633,6 +2638,7 @@ export class ConstructionManager {
         if (parentFoundation.isSecured) {
           return true;
         } else {
+          console.log("parent construction is secured");
           return false;
         }
       }
