@@ -298,7 +298,7 @@ export class ConstructionManager {
     ) {
       return true;
     }
-    console.log("placement out of range");
+    console.info("placement out of range");
     return false;
   }
 
@@ -2592,7 +2592,7 @@ export class ConstructionManager {
       parentFoundation.itemDefinitionId == Items.SHACK_BASIC ||
       parentFoundation.itemDefinitionId == Items.SHACK_SMALL
     ) {
-      console.log("placement in secured area");
+      console.info("placement in secured area");
       return false;
     }
     if (
@@ -2638,7 +2638,7 @@ export class ConstructionManager {
         if (parentFoundation.isSecured) {
           return true;
         } else {
-          console.log("parent construction is secured");
+          console.info("parent construction is secured");
           return false;
         }
       }
