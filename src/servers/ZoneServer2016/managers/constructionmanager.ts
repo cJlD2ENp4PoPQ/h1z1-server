@@ -224,6 +224,7 @@ export class ConstructionManager {
         Items.FOUNDATION_EXPANSION
       ].includes(item.itemDefinitionId)
     ) {
+      if (this.allowStackedPlacement) return false;
       // fix for tamper stacking
       let tampersInRadius = 0;
       for (const a in server._constructionFoundations) {
@@ -2083,7 +2084,9 @@ export class ConstructionManager {
       case Items.FOUNDATION:
       case Items.FOUNDATION_EXPANSION:
       case Items.GROUND_TAMPER:
-        return false;
+        if (!this.allowStackedPlacement) {
+          return false;
+        }
     }
 
     const parentSecured = parent.isSecured,
