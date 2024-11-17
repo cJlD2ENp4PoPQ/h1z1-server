@@ -225,7 +225,7 @@ export class ConstructionManager {
       ].includes(item.itemDefinitionId)
     ) {
       if (this.allowStackedPlacement) return false;
-      console.log("check tamper stacked")
+      console.info("check tamper stacked")
       // fix for tamper stacking
       let tampersInRadius = 0;
       for (const a in server._constructionFoundations) {
@@ -583,6 +583,7 @@ export class ConstructionManager {
     parentObjectCharacterId: string,
     BuildingSlot: string
   ) {
+    console.info("placement started")
     const item = client.character.getItemById(itemDefinitionId);
     if (!item) {
       this.sendPlacementFinalize(server, client, false);
@@ -598,12 +599,14 @@ export class ConstructionManager {
         itemDefinitionId
       )
     ) {
+      console.info("placement stacked error")
       this.sendPlacementFinalize(server, client, false);
       this.placementError(server, client, ConstructionErrors.STACKED);
       return;
     }
 
     if (this.detectStackedTamperPlacement(server, item, position)) {
+      console.info("tamper placement stacked error")
       this.sendPlacementFinalize(server, client, false);
       this.placementError(
         server,
@@ -625,6 +628,7 @@ export class ConstructionManager {
     */
 
     if (this.detectOutOfRange(client, item, position)) {
+      console.info("placement out of range")
       this.sendPlacementFinalize(server, client, false);
       this.placementError(server, client, ConstructionErrors.OUT_OF_RANGE);
       return;
@@ -649,6 +653,7 @@ export class ConstructionManager {
       !client.isDebugMode &&
       !this.overridePlacementItems.includes(itemDefinitionId)
     ) {
+      console.info("placement not allowed")
       this.placementError(server, client, ConstructionErrors.BUILD_PERMISSION);
       this.sendPlacementFinalize(server, client, false);
       return;
@@ -667,6 +672,7 @@ export class ConstructionManager {
           isOnPermissionedFoundation
         )
       ) {
+        console.info("placement to close")
         return;
       }
     }
@@ -681,6 +687,7 @@ export class ConstructionManager {
         isOnPermissionedFoundation
       )
     ) {
+      console.info("invalid trap placement")
       return;
     }
 
@@ -697,6 +704,7 @@ export class ConstructionManager {
         freeplaceParentCharacterId
       )
     ) {
+      console.info("placement error")
       this.sendPlacementFinalize(server, client, false);
       return;
     }
@@ -2085,7 +2093,7 @@ export class ConstructionManager {
       case Items.FOUNDATION:
       case Items.FOUNDATION_EXPANSION:
       case Items.GROUND_TAMPER:
-        console.log("tamper hides entity")
+        console.info("tamper hides entity")
         return false;
     }
 
