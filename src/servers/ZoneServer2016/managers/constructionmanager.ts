@@ -2093,8 +2093,9 @@ export class ConstructionManager {
       case Items.FOUNDATION:
       case Items.FOUNDATION_EXPANSION:
       case Items.GROUND_TAMPER:
-        console.info("tamper hides entity")
-        return false;
+        if (!this.allowStackedPlacement) {
+          return false;
+        }
     }
 
     const parentSecured = parent.isSecured,
