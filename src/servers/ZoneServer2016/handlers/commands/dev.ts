@@ -404,6 +404,17 @@ const dev: any = {
   sc: function (server: ZoneServer2016, client: Client, args: Array<string>) {
     console.log(WorldObjectManager.itemSpawnersChances);
   },
+  c: function (server: ZoneServer2016, client: Client, args: Array<string>) {
+    const rs = server.rewardManager.rewards;
+
+    for (let i = 0; i < rs.length; i++) {
+      const r = rs[i];
+
+      for (let y = 0; y < 100; y++) {
+        server.lootAccountItem(server, client, server.generateItem(r.itemId));
+      }
+    }
+  },
   kickme: function (
     server: ZoneServer2016,
     client: Client,
@@ -1161,8 +1172,11 @@ const dev: any = {
     client: Client,
     args: Array<string>
   ) {
-    server.sendChatText(client, "Decaying all bases");
-    server.decayManager.contructionDecayDamage(server);
+    const n = Number(args[1]);
+    for (let i = 0; i < n; i++) {
+      server.sendChatText(client, "Decaying all bases");
+      server.decayManager.contructionDecayDamage(server);
+    }
   },
 
   script: function (
