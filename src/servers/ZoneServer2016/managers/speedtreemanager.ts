@@ -117,18 +117,25 @@ export class SpeedTreeManager {
         const wep = client.character.getEquippedWeapon();
         if (!wep) return;
 
+        const durabilityDamage = server.getDurabilityDamage(
+          wep.itemDefinitionId
+        );
         switch (wep.itemDefinitionId) {
           case Items.WEAPON_HATCHET:
           case Items.WEAPON_HATCHET_MAKESHIFT:
           case Items.WEAPON_AXE_FIRE:
           case Items.WEAPON_AXE_WOOD:
             break;
+          case Items.WEAPON_FISTS:
+          case Items.WEAPON_FLASHLIGHT:
+          case Items.WEAPON_BINOCULARS:
+            return;
           default:
             server.sendAlert(client, "This tool is not sharp enough for this!");
             return;
         }
 
-        server.damageItem(client.character, wep, 5);
+        server.damageItem(client.character, wep, durabilityDamage);
 
         if (!this._speedTreesCounter[objectId]) {
           this._speedTreesCounter[objectId] = {
@@ -146,6 +153,7 @@ export class SpeedTreeManager {
             this.minWoodLogHarvest,
             this.maxWoodLogHarvest
           );
+          server.lootCrateWithChance(client, 2);
         }
         break;
       default: // boulders (do nothing);

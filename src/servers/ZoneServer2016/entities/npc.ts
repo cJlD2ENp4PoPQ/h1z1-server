@@ -22,7 +22,7 @@ import {
   logClientActionToMongo,
   randomIntFromInterval
 } from "../../../utils/utils";
-import { DB_COLLECTIONS } from "../../../utils/enums";
+import { DB_COLLECTIONS, KILL_TYPE } from "../../../utils/enums";
 import {
   Items,
   MaterialTypes,
@@ -34,6 +34,7 @@ import {
 } from "../models/enums";
 import { CommandInteractionString } from "types/zone2016packets";
 import { EntityType } from "h1emu-ai";
+import { BaseEntity } from "./baseentity";
 
 export class Npc extends BaseFullCharacter {
   health: number;
@@ -92,29 +93,29 @@ export class Npc extends BaseFullCharacter {
     this.server = server;
     switch (actorModelId) {
       // TODO: use enums
-      case 9510:
-      case 9634:
+      case ModelIds.ZOMBIE_FEMALE_WALKER:
+      case ModelIds.ZOMBIE_MALE_WALKER:
         this.entityType = EntityType.Zombie;
         this.materialType = MaterialTypes.ZOMBIE;
         this.npcMeleeDamage = 2000;
         break;
-      case 9667:
+      case ModelIds.ZOMBIE_SCREAMER:
         this.entityType = EntityType.Screamer;
         this.materialType = MaterialTypes.ZOMBIE;
         this.npcMeleeDamage = 3000;
         break;
-      case 9002:
-      case 9253:
+      case ModelIds.DEER:
+      case ModelIds.DEER_BUCK:
         this.entityType = EntityType.Deer;
         this.materialType = MaterialTypes.FLESH;
         this.npcMeleeDamage = 0;
         break;
-      case 9003:
+      case ModelIds.WOLF:
         this.entityType = EntityType.Wolf;
         this.materialType = MaterialTypes.FLESH;
         this.npcMeleeDamage = 2000;
         break;
-      case 9187:
+      case ModelIds.BEAR:
         this.entityType = EntityType.Bear;
         this.materialType = MaterialTypes.FLESH;
         this.npcMeleeDamage = 4000;
@@ -181,23 +182,44 @@ export class Npc extends BaseFullCharacter {
             server._db.collection(DB_COLLECTIONS.KILLS),
             client,
             server._worldId,
-            { type: this.npcId == NpcIds.ZOMBIE ? "zombie" : "wildlife" }
+            {
+              type:
+                this.npcId == NpcIds.ZOMBIE
+                  ? KILL_TYPE.ZOMBIE
+                  : KILL_TYPE.WILDLIFE
+            }
           );
+        }
 
-          client.character.metrics.wildlifeKilled++;
-          if (this.npcId == NpcIds.ZOMBIE)
-            client.character.metrics.zombiesKilled++;
-          else client.character.metrics.wildlifeKilled++;
+        if (this.npcId == NpcIds.ZOMBIE)
+          client.character.metrics.zombiesKilled++;
+        else client.character.metrics.wildlifeKilled++;
+      }
+      for (const a in server._clients) {
+        const c = server._clients[a];
+        if (c.spawnedEntities.has(this)) {
+          if (!c.isLoading) {
+            server.sendData(c, "Character.StartMultiStateDeath", {
+              data: {
+                characterId: this.characterId,
+                flag: 128,
+                managerCharacterId: c.character.characterId
+              }
+            });
+            server.sendData(c, "Character.ManagedObject", {
+              objectCharacterId: this.characterId,
+              characterId: c.character.characterId
+            });
+          } else {
+            server.sendData(c, "Character.StartMultiStateDeath", {
+              data: {
+                characterId: this.characterId,
+                flag: 0
+              }
+            });
+          }
         }
       }
-      server.sendDataToAllWithSpawnedEntity(
-        server._npcs,
-        this.characterId,
-        "Character.StartMultiStateDeath",
-        {
-          characterId: this.characterId
-        }
-      );
     }
 
     if (client) {
@@ -217,6 +239,21 @@ export class Npc extends BaseFullCharacter {
       this.onReadyCallback(client);
       delete this.onReadyCallback;
     }
+  }
+
+  OnExplosiveHit(server: ZoneServer2016, sourceEntity: BaseEntity): void {
+    let damage = this.health + this.health / 2;
+
+    const distance = getDistance(
+      sourceEntity.state.position,
+      this.state.position
+    );
+    if (distance > 5) return;
+    if (distance > 1) damage /= distance;
+    this.damage(server, {
+      entity: sourceEntity.characterId,
+      damage: damage
+    });
   }
 
   OnProjectileHit(server: ZoneServer2016, damageInfo: DamageInfo) {
@@ -272,6 +309,7 @@ export class Npc extends BaseFullCharacter {
             weight: 40
           }
         ];
+        this.npcId = NpcIds.ZOMBIE;
         break;
       case ModelIds.ZOMBIE_FEMALE_WALKER:
       case ModelIds.ZOMBIE_MALE_WALKER:
@@ -395,9 +433,9 @@ export class Npc extends BaseFullCharacter {
   ) {
     const ranges = [];
     const preRewardedItems: number[] = [];
-
+    // Ensure zombie logic is tied to NPC type
     if (isZombie) {
-      if (chance(2)) {
+      if (chance(20)) {
         const wornLetters = [
           Items.WORN_LETTER_CHURCH_PV,
           Items.WORN_LETTER_LJ_PV,

@@ -93,6 +93,20 @@ export class GroupManager {
           .findOne<Group>({ serverId: server._worldId, groupId });
   }
 
+  async getGroupId(
+    server: ZoneServer2016,
+    client: Client
+  ): Promise<number | null> {
+    if (server._soloMode) return null;
+
+    const collection = server._db.collection(DB_COLLECTIONS.GROUPS);
+    const result = await collection.findOne(
+      { serverId: server._worldId, members: client.character.characterId },
+      { projection: { groupId: 1, _id: 0 } }
+    );
+    return result ? result.groupId : null;
+  }
+
   async deleteGroup(server: ZoneServer2016, groupId: number) {
     if (server._soloMode) {
       delete this.soloGroups[groupId];
@@ -224,7 +238,13 @@ export class GroupManager {
       return;
     }
 
-    if (target.character.groupId != 0) return;
+    if (target.character.groupId != 0) {
+      server.sendAlert(
+        source,
+        `${target.character.name} is already in a group!`
+      );
+      return;
+    }
 
     if (source == target) {
       server.sendAlert(source, "You can't invite yourself to group!");
@@ -248,10 +268,10 @@ export class GroupManager {
       delete this.pendingInvites[target.character.characterId];
       return;
     }
-    if (group && group.leader != source.character.characterId) {
-      server.sendAlert(source, "You are not the group leader!");
-      return;
-    }
+    // if (group && group.leader != source.character.characterId) {
+    //   server.sendAlert(source, "You are not the group leader!");
+    //   return;
+    // }
 
     this.pendingInvites[target.character.characterId] =
       source.character.groupId;
@@ -381,11 +401,6 @@ export class GroupManager {
 
   async handlePlayerDisconnect(server: ZoneServer2016, client: Client) {
     delete this.pendingInvites[client.character.characterId];
-    this.removeGroupMember(
-      server,
-      client.character.characterId,
-      client.character.groupId
-    );
     const groupId = client.character.groupId;
     this.sendAlertToAllOthersInGroup(
       server,
@@ -565,6 +580,56 @@ export class GroupManager {
     this.removeGroupMember(server, client.character.characterId, group.groupId);
   }
 
+  handleGroupLeader(
+    server: ZoneServer2016,
+    client: Client,
+    group: Group,
+    argleader: string
+  ) {
+    const newleader = argleader;
+
+    if (group.leader == client.character.characterId) {
+      const newLeaderClient = server.getClientByNameOrLoginSession(newleader);
+      if (!newLeaderClient || !(newLeaderClient instanceof Client)) {
+        server.sendChatText(client, "New leader not found.");
+        return;
+      }
+
+      group.leader = newLeaderClient.character.characterId;
+
+      // Update the database
+      if (!server._soloMode) {
+        server._db.collection(DB_COLLECTIONS.GROUPS).updateOne(
+          {
+            serverId: server._worldId,
+            groupId: group.groupId
+          },
+          { $set: { leader: newLeaderClient.character.characterId } }
+        );
+      }
+
+      // Notify the new leader and the group
+      server.sendAlert(newLeaderClient, "You have been made the group leader!");
+      this.sendAlertToAllOthersInGroup(
+        server,
+        newLeaderClient,
+        group.groupId,
+        `${newLeaderClient.character.name} has been made the group leader!`
+      );
+
+      // Update the group UI
+      this.sendDataToGroup(server, group.groupId, "Group.SetGroupOwner", {
+        characterId: newLeaderClient.character.characterId,
+        groupId: group.groupId
+      });
+
+      // Sync the group
+      this.syncGroup(server, group.groupId, true);
+    } else {
+      server.sendChatText(client, "You are not the group leader.");
+    }
+  }
+
   handleGroupView(server: ZoneServer2016, client: Client, group: Group) {
     server.sendConsoleText(
       client,
@@ -612,7 +677,7 @@ export class GroupManager {
   async handleGroupCommand(
     server: ZoneServer2016,
     client: Client,
-    args: Array<string>
+    args: Array<string | undefined>
   ) {
     if (!args[0]) {
       server.sendChatText(
@@ -653,6 +718,16 @@ export class GroupManager {
           group
         );
         break;
+      case "leader":
+        if (!args[1]) {
+          server.sendChatText(
+            client,
+            "You must specify a new leader!  Usage: /group leader {playername}"
+          );
+          return;
+        }
+        this.handleGroupLeader(server, client, group, args[1]);
+        break;
       case "leave":
         this.handleGroupLeave(server, client, group);
         break;
@@ -680,7 +755,6 @@ export class GroupManager {
           server.sendChatText(client, "Client not found.");
           return;
         }
-
         this.sendGroupInvite(server, client, targetClient);
         break;
       default:

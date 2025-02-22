@@ -71,6 +71,7 @@ export enum ConstructionErrors {
   UNKNOWN_CONSTRUCTION = "Unknown construction item",
   OUT_OF_RANGE = "Out of range",
   STACKED = "Construction stacked",
+  WALL_SLOT_FAILED = "Wall slot failed plz report this!",
   TREESTACKED = "Construction tree stacked"
 }
 
@@ -293,6 +294,7 @@ export enum StringIds {
   SEARCH = 1191,
   SEARCH_ALL_CABINETS = 9242,
   OPEN_AND_LOCK = 8944,
+  ENTER_ACCESS_CODE = 8943,
   REST = 9041,
   RESTING = 9051,
   NOT_TIRED = 12159,
@@ -304,6 +306,7 @@ export enum StringIds {
   PICKUP_TRUCK = 12537,
   POLICE_CAR = 12538,
   PERMISSIONS_TARGET = 12982,
+  CLAIM_TARGET = 11940,
   EXTRACT_BLOOD = 1453,
   HARVEST = 1009,
   LONG_RANGE_RADIO = 12809,
@@ -338,7 +341,8 @@ export enum StringIds {
   SCRAY_HALLOWEEN_MASK = 12858,
   UNCLE_SAM_MASK = 14171,
   CONVEYS = 11895,
-  BANSHEE = 12310
+  BANSHEE = 12310,
+  HOTWIRE = 14166
 }
 
 export enum MovementModifiers {
@@ -346,7 +350,8 @@ export enum MovementModifiers {
   SWIZZLE = 1.1,
   SNARED = 0.5,
   CONVEYS = 1.15,
-  BOOTS = 1.07
+  BOOTS = 1.07,
+  ADRENALINE = 1.12
 }
 
 export enum ContainerErrors {
@@ -392,7 +397,8 @@ export enum ItemClasses {
   POUCHES = 25013,
   BACKPACKS = 25004,
   THROWABLES = 25078,
-  BODY_ARMOR = 25041
+  BODY_ARMOR = 25041,
+  FOOTWEAR = 25005
 }
 
 export enum VehicleIds {
@@ -438,6 +444,7 @@ export enum LoadoutSlots {
   CHEST = 10,
   HEAD = 11,
   BACK = 12,
+  FEET = 13,
   LEGS = 14,
   BELT = 25,
   EYES = 29,
@@ -510,7 +517,10 @@ export enum ResourceIndicators {
   COMFORT_PLUS = "COMFORT +",
   COMFORT_PLUSPLUS = "COMFORT ++",
   FOOD_POISONING = "FOOD POISONING",
-  BEES = "BEES!"
+  BEES = "BEES!",
+  COFFEE_SUGAR = "COFFEE_SUGAR",
+  ADRENALINE = "ADRENALINE",
+  ADRENALINE_AFTER_EFFECTS = "ADRENALINE AFTER EFFECTS"
 }
 
 export enum Abilities {
@@ -723,7 +733,6 @@ export enum AccountItems {
   REWARD_CRATE_WASTELAND_BRONZE = 3026,
   REWARD_CRATE_WASTELAND = 2939,
   REWARD_CRATE_BR_1 = 2031,
-  REWARD_CRATE_BR_2 = 2350,
   REWARD_CRATE_INVITATIONAL = 2436,
   REWARD_CRATE_WEARABLES = 2009,
   REWARD_CRATE_MARAUDER = 2276,
@@ -737,6 +746,9 @@ export enum AccountItems {
   REWARD_CRATE_INFERNAL_SILVER = 3823,
   REWARD_CRATE_INFERNAL_BRONZE = 3822,
   REWARD_CRATE_INFERNAL = 3821,
+  REWARD_CRATE_VIGILANTE = 2350,
+  REWARD_CRATE_H1EMU = 5063,
+  REWARD_CRATE_H1EMUEX = 5026,
   MYSTERY_BAG_KOTK = 3239,
   KOTK_ELITE_BAG = 3240,
   SKIRMISH_SMALL_FIREARMS = 3274,
@@ -758,8 +770,11 @@ export enum Items {
   WEAPON_CROWBAR = 82,
   WEAPON_COMBATKNIFE = 84,
   WEAPON_MACHETE01 = 83,
+  WEAPON_HISREGARD_MACHETE = 2228,
+  WEAPON_TOXIC_COMBATKNIFE = 2494,
   WEAPON_KATANA = 2961,
   WEAPON_BAT_WOOD = 1724,
+  WEAPON_MOURNING_WOOD = 1442,
   WEAPON_GUITAR = 1733,
   WEAPON_AXE_WOOD = 58,
   WEAPON_AXE_FIRE = 1745,
@@ -832,21 +847,21 @@ export enum Items {
   BUNDLE_WOODEN_ARROWS_2 = 3379,
   GAUZE = 1751,
   SWIZZLE = 1709,
-  GROUND_COFFEE = 56, // TODO = expand with more canned food types
-  CANNED_FOOD01 = 7,
-  CANNED_FOOD02 = 1393,
-  CANNED_FOOD03 = 1394,
-  CANNED_FOOD04 = 1391,
-  CANNED_FOOD05 = 1392,
-  CANNED_FOOD06 = 1396,
-  CANNED_FOOD07 = 1397,
-  CANNED_FOOD08 = 1398,
-  CANNED_FOOD09 = 1399,
-  CANNED_FOOD10 = 1400,
-  CANNED_FOOD11 = 1401,
-  CANNED_FOOD25 = 1431,
-  CANNED_FOOD21 = 1395,
-  CANNED_FOOD26 = 2536,
+  GROUND_COFFEE = 56,
+  CANNED_FOOD01 = 7, // Roel's Sliced Beets
+  CANNED_FOOD02 = 1393, // Mom's Pink Salmon
+  CANNED_FOOD03 = 1394, // Mom's Chunk Tuna in Water
+  CANNED_FOOD04 = 1391, // Graupmann's Beef Chunks
+  CANNED_FOOD05 = 1392, // Graupmann's Cured Sausages
+  CANNED_FOOD06 = 1396, // Sjoberg's Sliced Peaches
+  CANNED_FOOD07 = 1397, // Sjoberg's Mandarin Oranges
+  CANNED_FOOD08 = 1398, // Graupmann's Sliced Carrots
+  CANNED_FOOD09 = 1399, // Smed's Mixed Vegetables
+  CANNED_FOOD10 = 1400, // Grat's Refried Beans
+  CANNED_FOOD11 = 1401, // Sjoberg's Diced Tomatoes
+  CANNED_FOOD25 = 1431, // Grat's Spicy Chili
+  CANNED_FOOD21 = 1395, // Mom's Fresh Chicken
+  CANNED_FOOD26 = 2536, // Deeb's Nuts & More
   BLACKBERRY = 105,
   BLACKBERRY_JUICE = 1361,
   BLACKBERRY_PIE = 1706,
@@ -855,19 +870,19 @@ export enum Items {
   WATER_PURE = 1371,
   WATER_STAGNANT = 1535,
   WATER_DIRTY = 1368,
-  MRE_APPLE = 1402, // TODO = add other MRE types
-  MRE01 = 1403,
-  MRE02 = 1404,
-  MRE03 = 1405,
-  MRE04 = 1406,
-  MRE05 = 1407,
-  MRE06 = 1409,
-  MRE07 = 1408,
-  MRE08 = 1410,
-  MRE09 = 1411,
-  MRE10 = 1412,
-  MRE11 = 1413,
-  MRE12 = 1414,
+  MRE_APPLE = 1402, // Apple Turnover
+  MRE01 = 1403, // BBQ Beef Sandwich
+  MRE02 = 1404, // BBQ Chicken Sandwich
+  MRE03 = 1405, // Beef Steak
+  MRE04 = 1406, // Chicken Fajita
+  MRE05 = 1407, // Chicken with Noodles
+  MRE06 = 1409, // Chili with Beans
+  MRE07 = 1408, // Lemon Pepper Tuna
+  MRE08 = 1410, // Lemon Pound Cake
+  MRE09 = 1411, // Mexican Style Chicken Stew
+  MRE10 = 1412, // Pork Sausage with Gravy
+  MRE11 = 1413, // Ration Nut & Raisin Mix
+  MRE12 = 1414, // Southwest Beef & Black Beans
   SANDWICH_BEAR = 1459,
   STEAK_BEAR = 1451,
   SURVIVAL_BREAD = 1456,
@@ -896,6 +911,7 @@ export enum Items {
 
   //#region CONSTRUCTION
   GROUND_TAMPER = 124,
+  WOODEN_BARRICADE = 122,
   SHACK = 1433,
   SHACK_SMALL = 1440,
   SHACK_BASIC = 1468,
@@ -1051,6 +1067,8 @@ export enum Items {
   CONVEYS_CDN = 2795,
   CONVEYS_NEKOCHAN = 3404,
   CONVEYS_ELLOHIME = 3574,
+  ZEDS_WHITE = 3708,
+  GATORS_RED = 2550,
   HAT_BEANIE = 2162,
   BOOTS_TAN = 2207,
   BOOTS_GRAY_BLUE = 2209,
@@ -1280,6 +1298,7 @@ export enum Items {
   QUEST_MILITARY_SCRUBS_PANTS = 2659,
 
   REWARD_SET_WOODLAND_GHILLIE = 2725,
+  REWARD_SET_GHILLIE = 2724,
   REWARD_SET_RED_FACE_BANDANA = 2326,
   REWARD_SET_EVIL_CLOWN_BANDANA = 2327,
   REWARD_SET_BLUE_FACE_BANDANA = 2328,
@@ -1288,6 +1307,8 @@ export enum Items {
   REWARD_SET_PINK_FACE_BANDANA = 2331,
   REWARD_SET_SKULL_FACE_BANDANA = 2332,
   SKIN_WOODLAND_GHILLIE_SUIT_BOOTS = 2679,
+  SKIN_GHILLIE_SUIT_BOOTS = 2680,
+  SKIN_GHILLIE_SUIT_GLOVES = 2670,
   SKIN_GREEN_GLOVES = 2669,
   SKIN_RED_FACE_BANDANA = 2305,
   SKIN_RED_BIKER_SHADES = 2296,
@@ -2406,4 +2427,52 @@ export enum MeleeTypes {
   BLADE = 3,
   KNIFE = 4,
   GUITAR = 5
+}
+
+export enum DefaultSkinsConveys {
+  RED_CONVEYS = 2216,
+  WHITE_CONVEYS = 2218,
+  DEFAULT_BLUE_CONVEYS = 2217
+}
+
+export enum DefaultSkinsBackpack {
+  ORANGE_BACKPACK = 2116,
+  BLUE_AND_GRAY_PACKPACK = 2114,
+  BLUE_BACKPACK = 2113,
+  GREEN_BACKPACK = 2115,
+  RED_BACKPACK = 2117,
+  DEFAULT_BLUE_ORANGE = 2038
+}
+
+export enum DefaultSkinsMotorHelmet {
+  // BLACK_MOTORCYCLE_HELMET = 2168 - skin is light blue
+  GRAY_MOTOR_HELMET = 2169,
+  // WHITE_MOTOR_HELMET = 2171, skin is light red
+  DEFAULT_RED_MOTOR_HELMET = 2170
+}
+
+export enum DefaultSkinsZeds {
+  NAVY_ZEDS = 3709,
+  BROWN_ZEDS = 3710,
+  GREEN_ZEDS = 3711,
+  DEFAULT_WHITE_ZEDS = 3708
+}
+
+export enum DefaultSkinsGators {
+  GREEN_GATORS = 2563,
+  AQUA_GATORS = 2564,
+  PURPLE_GATORS = 2565,
+  WHITE_GATORS = 2566,
+  PINK_GATORS = 2567,
+  BROWN_GATORS = 3212,
+  DARK_GREY_GATORS = 3485,
+  GRAY_BLUE_GATORS = 3486,
+  DEFAULT_RED_GATORS = 2550
+}
+
+export enum DefaultSkinsBoots {
+  BROWN_BOOTS = 2206,
+  TAN_BOOTS = 2207,
+  GRAY_BOOTS = 2208,
+  DEFAULT_GRAY_BLUE_BOOTS = 2209
 }

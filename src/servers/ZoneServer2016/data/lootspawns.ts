@@ -101,7 +101,7 @@ const carparts = [
 export const lootTables: { [lootSpawner: string]: LootSpawner } = {
   // #region AR15
   "ItemSpawner_Weapon_M16A4.adr": {
-    spawnChance: 20,
+    spawnChance: 40,
     items: [
       {
         item: Items.WEAPON_AR15,
@@ -114,7 +114,7 @@ export const lootTables: { [lootSpawner: string]: LootSpawner } = {
     ]
   },
   "ItemSpawner_AmmoBox02_M16A4.adr": {
-    spawnChance: 20,
+    spawnChance: 40,
     items: [
       {
         item: Items.AMMO_223,
@@ -143,7 +143,7 @@ export const lootTables: { [lootSpawner: string]: LootSpawner } = {
 
   // #region SHOTGUN
   "ItemSpawner_Weapon_PumpShotgun01.adr": {
-    spawnChance: 20,
+    spawnChance: 40,
     items: [
       {
         item: Items.WEAPON_SHOTGUN,
@@ -156,7 +156,7 @@ export const lootTables: { [lootSpawner: string]: LootSpawner } = {
     ]
   },
   "ItemSpawner_AmmoBox02_12GaShotgun.adr": {
-    spawnChance: 20,
+    spawnChance: 40,
     items: [
       {
         item: Items.AMMO_12GA,
@@ -391,7 +391,7 @@ export const lootTables: { [lootSpawner: string]: LootSpawner } = {
 
   // #region 308 RIFLE
   "ItemSpawner_Weapon_M24.adr": {
-    spawnChance: 20,
+    spawnChance: 40,
     items: [
       {
         item: Items.WEAPON_308,
@@ -404,7 +404,7 @@ export const lootTables: { [lootSpawner: string]: LootSpawner } = {
     ]
   },
   "ItemSpawner_AmmoBox02_308Rifle.adr": {
-    spawnChance: 20,
+    spawnChance: 40,
     items: [
       {
         item: Items.AMMO_308,
@@ -798,7 +798,7 @@ export const lootTables: { [lootSpawner: string]: LootSpawner } = {
       },
       {
         item: Items.BACKPACK_BLUE_ORANGE,
-        weight: 15,
+        weight: 8,
         spawnCount: {
           min: 1,
           max: 1
@@ -1102,6 +1102,22 @@ export const lootTables: { [lootSpawner: string]: LootSpawner } = {
         }
       },
       {
+        item: Items.ZEDS_WHITE,
+        weight: 20,
+        spawnCount: {
+          min: 1,
+          max: 1
+        }
+      },
+      {
+        item: Items.GATORS_RED,
+        weight: 20,
+        spawnCount: {
+          min: 1,
+          max: 1
+        }
+      },
+      {
         item: Items.WEAPON_HATCHET,
         weight: 20,
         spawnCount: {
@@ -1382,8 +1398,8 @@ export const lootTables: { [lootSpawner: string]: LootSpawner } = {
         }
       },
       {
-        item: Items.DOCTORS_MEMO,
-        weight: 10,
+        item: Items.COLD_MEDICINE,
+        weight: 25,
         spawnCount: {
           min: 1,
           max: 1
@@ -2035,11 +2051,19 @@ export const lootTables: { [lootSpawner: string]: LootSpawner } = {
 
   // #region MISC
   "ItemSpawner_BackpackOnGround001.adr": {
-    spawnChance: 15,
+    spawnChance: 8,
     items: [
       {
         item: Items.BACKPACK_BLUE_ORANGE,
         weight: 100,
+        spawnCount: {
+          min: 1,
+          max: 1
+        }
+      },
+      {
+        item: Items.BACKPACK_MILITARY_TAN,
+        weight: 5,
         spawnCount: {
           min: 1,
           max: 1
@@ -2214,7 +2238,7 @@ export const containerLootSpawners: {
       },
       {
         item: Items.BACKPACK_BLUE_ORANGE,
-        weight: 15,
+        weight: 10,
         spawnCount: {
           min: 1,
           max: 1
@@ -3127,6 +3151,14 @@ export const containerLootSpawners: {
           min: 1,
           max: 3
         }
+      },
+      {
+        item: Items.ANTI_VIRAL_BOTTLE_EMPTY,
+        weight: 30,
+        spawnCount: {
+          min: 1,
+          max: 1
+        }
       }
     ]
   },
@@ -3753,7 +3785,7 @@ export const containerLootSpawners: {
       },
       {
         item: Items.FERTILIZER,
-        weight: 2,
+        weight: 6,
         spawnCount: {
           min: 1,
           max: 1

@@ -15,7 +15,7 @@ import {
   createPositionUpdate,
   eul2quat,
   getDistance,
-  isPosInRadius
+  logClientActionToMongo
 } from "../../../utils/utils";
 import {
   Items,
@@ -43,7 +43,9 @@ import {
   LightweightToFullVehicle
 } from "types/zone2016packets";
 import { BaseEntity } from "./baseentity";
-import { scheduler } from "timers/promises";
+import { ExplosiveEntity } from "./explosiveentity";
+import { ProjectileEntity } from "./projectileentity";
+import { DB_COLLECTIONS, KILL_TYPE } from "../../../utils/enums";
 
 function getActorModelId(vehicleId: VehicleIds) {
   switch (vehicleId) {
@@ -81,6 +83,7 @@ function getVehicleName(ModelId: number) {
 
 function getVehicleLoadoutId(vehicleId: VehicleIds) {
   switch (vehicleId) {
+    case VehicleIds.PARACHUTE:
     case VehicleIds.OFFROADER:
       return LoadoutIds.VEHICLE_OFFROADER;
     case VehicleIds.PICKUP:
@@ -89,7 +92,6 @@ function getVehicleLoadoutId(vehicleId: VehicleIds) {
       return LoadoutIds.VEHICLE_POLICECAR;
     case VehicleIds.ATV:
       return LoadoutIds.VEHICLE_ATV;
-    case VehicleIds.PARACHUTE:
     case VehicleIds.SPECTATE:
     default:
       return 5; // idk if this is right but these vehicles dont have a loadout
@@ -232,6 +234,7 @@ export class Vehicle2016 extends BaseLootableEntity {
 
   droppedManagedClient?: ZoneClient2016; // for temporary fix
   isMountable: boolean = true;
+  isDestroyed: boolean = false;
   constructor(
     characterId: string,
     transientId: number,
@@ -333,6 +336,14 @@ export class Vehicle2016 extends BaseLootableEntity {
         this.majorDamageEffect = Effects.VEH_Damage_ATV_Stage02;
         this.criticalDamageEffect = Effects.VEH_Damage_ATV_Stage03;
         this.supercriticalDamageEffect = Effects.VEH_Damage_ATV_Stage04;
+        break;
+      case VehicleIds.PARACHUTE:
+        this.destroyedEffect = 0;
+        this.destroyedModel = 0;
+        this.minorDamageEffect = 0;
+        this.majorDamageEffect = 0;
+        this.criticalDamageEffect = 0;
+        this.supercriticalDamageEffect = 0;
         break;
       case VehicleIds.OFFROADER:
       default:
@@ -543,24 +554,50 @@ export class Vehicle2016 extends BaseLootableEntity {
   getHealth() {
     return this._resources[ResourceIds.CONDITION];
   }
+  hasVehicleDamageBoost(weapon: Items | undefined) {
+    switch (weapon) {
+      case Items.WEAPON_308:
+      case Items.WEAPON_MAGNUM:
+        return true;
+      default:
+        return false;
+    }
+  }
 
-  async damage(server: ZoneServer2016, damageInfo: DamageInfo) {
-    if (this.isInvulnerable) return;
+  damage(server: ZoneServer2016, damageInfo: DamageInfo) {
+    if (this.isInvulnerable || this.isDestroyed) return;
     const oldHealth = this._resources[ResourceIds.CONDITION];
-    this._resources[ResourceIds.CONDITION] -= damageInfo.damage;
+    this._resources[ResourceIds.CONDITION] -= this.hasVehicleDamageBoost(
+      damageInfo.weapon
+    )
+      ? 8000
+      : damageInfo.damage;
     const client = server.getClientByCharId(damageInfo.entity);
     if (client) {
-      client.character.addCombatlogEntry(
-        await server.generateDamageRecord(
-          this.characterId,
-          damageInfo,
-          oldHealth
-        )
-      );
+      queueMicrotask(async () => {
+        client.character.addCombatlogEntry(
+          await server.generateDamageRecord(
+            this.characterId,
+            damageInfo,
+            oldHealth
+          )
+        );
+      });
     }
 
     if (this._resources[ResourceIds.CONDITION] <= 0) {
+      if (client && !server._soloMode) {
+        logClientActionToMongo(
+          server._db.collection(DB_COLLECTIONS.KILLS),
+          client,
+          server._worldId,
+          { type: KILL_TYPE.VEHICLE }
+        );
+      }
       this.destroy(server);
+      if (client) {
+        client.character.metrics.vehiclesDestroyed++;
+      }
     } else {
       let damageeffect = 0;
       let allowSend = false;
@@ -636,11 +673,6 @@ export class Vehicle2016 extends BaseLootableEntity {
   }
 
   updateLoadout(server: ZoneServer2016) {
-    const client = server.getClientByCharId(this.characterId);
-    if (client) {
-      if (!client.character.initialized) return;
-      server.checkShoes(client);
-    }
     server.sendDataToAllWithSpawnedEntity(
       server._vehicles,
       this.characterId,
@@ -1031,7 +1063,7 @@ export class Vehicle2016 extends BaseLootableEntity {
     );
     this.effectTags.push(hotwireEffect);
 
-    server.utilizeHudTimer(client, 0, 7000, 0, () => {
+    server.utilizeHudTimer(client, StringIds.HOTWIRE, 7000, 0, () => {
       this.removeHotwireEffect(server);
       this.startEngine(server);
     });
@@ -1154,24 +1186,6 @@ export class Vehicle2016 extends BaseLootableEntity {
   }
 
   pGetItemData(server: ZoneServer2016, item: BaseItem, containerDefId: number) {
-    let durability: number = 0;
-    switch (true) {
-      case server.isWeapon(item.itemDefinitionId):
-        durability = 2000;
-        break;
-      case server.isArmor(item.itemDefinitionId):
-        durability = 1000;
-        break;
-      case server.isHelmet(item.itemDefinitionId):
-        durability = 100;
-        break;
-      case server.isConvey(item.itemDefinitionId):
-        durability = 5400;
-        break;
-      case server.isGeneric(item.itemDefinitionId):
-        durability = 2000;
-        break;
-    }
     return {
       itemDefinitionId: item.itemDefinitionId,
       tintId: 0,
@@ -1183,9 +1197,11 @@ export class Vehicle2016 extends BaseLootableEntity {
       containerGuid: item.containerGuid,
       containerDefinitionId: containerDefId,
       containerSlotId: item.slotId,
-      baseDurability: durability,
-      currentDurability: durability ? item.currentDurability : 0,
-      maxDurabilityFromDefinition: durability,
+      baseDurability: server.getItemBaseDurability(item.itemDefinitionId),
+      currentDurability: item.currentDurability,
+      maxDurabilityFromDefinition: server.getItemBaseDurability(
+        item.itemDefinitionId
+      ),
       unknownBoolean1: true,
       ownerCharacterId: this.characterId,
       unknownDword9: 1,
@@ -1289,6 +1305,7 @@ export class Vehicle2016 extends BaseLootableEntity {
   }
 
   destroy(server: ZoneServer2016, disableExplosion = false): boolean {
+    this.isDestroyed = true;
     if (!server._vehicles[this.characterId]) return false;
     this._resources[ResourceIds.CONDITION] = 0;
     for (const c in server._clients) {
@@ -1321,15 +1338,25 @@ export class Vehicle2016 extends BaseLootableEntity {
 
   async OnExplosiveHit(server: ZoneServer2016, sourceEntity: BaseEntity) {
     if (this.characterId == sourceEntity.characterId) return;
-    if (!isPosInRadius(5, this.state.position, sourceEntity.state.position))
-      return;
+
+    let damage = 100000;
+    switch (true) {
+      case sourceEntity instanceof ExplosiveEntity:
+        damage = 100000;
+        break;
+      case sourceEntity instanceof ProjectileEntity:
+        damage = sourceEntity.actorModelId == 0 ? 50000 : 100000;
+        break;
+      default:
+        damage = 100000;
+        break;
+    }
 
     const distance = getDistance(
       sourceEntity.state.position,
       this.state.position
     );
-    const damage = 250000 / distance;
-    await scheduler.wait(150);
+    if (distance > 1) damage /= distance;
     this.damage(server, {
       entity: sourceEntity.characterId,
       damage: damage
