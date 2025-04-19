@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2024 H1emu community
+//   copyright (C) 2021 - 2025 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -580,6 +580,7 @@ export class ConstructionManager {
     modelId: number,
     position: Float32Array,
     rotation: Float32Array,
+    scale: Float32Array,
     parentObjectCharacterId: string,
     BuildingSlot: string
   ) {
@@ -694,6 +695,7 @@ export class ConstructionManager {
         modelId,
         position,
         rotation,
+        scale,
         parentObjectCharacterId,
         BuildingSlot,
         freeplaceParentCharacterId
@@ -715,6 +717,7 @@ export class ConstructionManager {
     modelId: number,
     position: Float32Array,
     rotation: Float32Array,
+    scale: Float32Array,
     parentObjectCharacterId: string,
     BuildingSlot: string,
     freeplaceParentCharacterId?: string
@@ -915,6 +918,7 @@ export class ConstructionManager {
           modelId,
           position,
           rotation,
+          scale,
           freeplaceParentCharacterId ?? "",
           itemDefinitionId
         );
@@ -1755,6 +1759,7 @@ export class ConstructionManager {
     modelId: number,
     position: Float32Array,
     rotation: Float32Array,
+    scale: Float32Array,
     parentObjectCharacterId: string,
     itemDefinitionId: number
   ) {
@@ -1771,6 +1776,8 @@ export class ConstructionManager {
         parentObjectCharacterId,
         ""
       );
+
+    construction.scale = scale;
 
     const parent = construction.getParent(server);
     if (parent) {
