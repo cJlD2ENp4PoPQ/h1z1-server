@@ -1,4 +1,4 @@
-// ======================================================================
+﻿// ======================================================================
 //
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
@@ -447,7 +447,7 @@ export const commands: Array<Command> = [
       server.sendDataToAllWithSpawnedEntity(
         server._characters,
         client.character.characterId,
-        "AnimationBase",
+        "Animation.Play",
         {
           characterId: client.character.characterId,
           animationId: animationId
@@ -490,25 +490,9 @@ export const commands: Array<Command> = [
         return;
       }
 
-      const targetClient = server.getClientByNameOrLoginSession(args[0]);
-
-      /*if (!targetClient) {
-        targetClient = await server.getOfflineClientByName(args[0]);
-      }*/
-
-      if (server.playerNotFound(client, args[0].toString(), targetClient)) {
-        return;
-      }
-      if (!targetClient || !(targetClient instanceof Client)) {
-        server.sendChatText(client, "Player not found.");
-        return;
-      }
-      if (
-        targetClient?.character?.characterId == client.character.characterId
-      ) {
-        server.sendChatText(client, "Don't be ridiculous.");
-        return;
-      }
+      const targetPlayerName = args[0];
+      const targetClient =
+        server.getClientByNameOrLoginSession(targetPlayerName);
 
       if (await server.chatManager.checkMute(server, client)) {
         server.sendChatText(
@@ -517,31 +501,47 @@ export const commands: Array<Command> = [
         );
         return;
       }
-      if (
-        targetClient?.character?.mutedCharacters?.includes(
-          client.character.characterId
-        )
-      ) {
-        server.sendChatText(
-          client,
-          `[Whisper] Message blocked, target player has you muted!`
-        );
-        return;
+
+      if (targetClient instanceof Client) {
+        if (
+          targetClient.character?.characterId == client.character.characterId
+        ) {
+          server.sendChatText(client, "Don't be ridiculous.");
+          return;
+        }
+
+        if (
+          targetClient.character?.mutedCharacters?.includes(
+            client.character.characterId
+          )
+        ) {
+          server.sendChatText(
+            client,
+            `[Whisper] Message blocked, target player has you muted!`
+          );
+          return;
+        }
+
+        client.character.lastWhisperedPlayer = targetClient.character.name;
+        targetClient.character.lastWhisperedPlayer = client.character.name;
+      } else {
+        client.character.lastWhisperedPlayer = targetPlayerName;
       }
-      client.character.lastWhisperedPlayer = targetClient.character.name;
-      targetClient.character.lastWhisperedPlayer = client.character.name;
 
       args.splice(0, 1);
       const message = args.join(" ");
 
       server.sendChatText(
         client,
-        `[Whisper to ${targetClient.character.name}]: ${message}`
+        `[Whisper to ${targetPlayerName}]: ${message}`
       );
-      server.sendChatText(
-        targetClient,
-        `[Whisper from ${client.character.name}]: ${message}`
-      );
+
+      if (targetClient instanceof Client) {
+        server.sendChatText(
+          targetClient,
+          `[Whisper from ${client.character.name}]: ${message}`
+        );
+      }
     }
   },
   {
@@ -562,35 +562,9 @@ export const commands: Array<Command> = [
         return;
       }
 
-      let targetClient = server.getClientByNameOrLoginSession(
-        client.character.lastWhisperedPlayer
-      );
-
-      if (!targetClient) {
-        targetClient = await server.getOfflineClientByName(
-          client.character.lastWhisperedPlayer
-        );
-      }
-
-      if (
-        server.playerNotFound(
-          client,
-          client.character.lastWhisperedPlayer.toString(),
-          targetClient
-        )
-      ) {
-        return;
-      }
-      if (!targetClient || !(targetClient instanceof Client)) {
-        server.sendChatText(client, "Player not found.");
-        return;
-      }
-      if (
-        targetClient?.character?.characterId == client.character.characterId
-      ) {
-        server.sendChatText(client, "Don't be ridiculous.");
-        return;
-      }
+      const targetPlayerName = client.character.lastWhisperedPlayer;
+      const targetClient =
+        server.getClientByNameOrLoginSession(targetPlayerName);
 
       if (await server.chatManager.checkMute(server, client)) {
         server.sendChatText(
@@ -599,30 +573,41 @@ export const commands: Array<Command> = [
         );
         return;
       }
-      if (
-        targetClient?.character?.mutedCharacters?.includes(
-          client.character.characterId
-        )
-      ) {
-        server.sendChatText(
-          client,
-          `[Reply] Message blocked, target player has you muted!`
-        );
-        return;
+
+      if (targetClient instanceof Client) {
+        if (
+          targetClient.character?.characterId == client.character.characterId
+        ) {
+          server.sendChatText(client, "Don't be ridiculous.");
+          return;
+        }
+
+        if (
+          targetClient.character?.mutedCharacters?.includes(
+            client.character.characterId
+          )
+        ) {
+          server.sendChatText(
+            client,
+            `[Reply] Message blocked, target player has you muted!`
+          );
+          return;
+        }
+
+        client.character.lastWhisperedPlayer = targetClient.character.name;
+        targetClient.character.lastWhisperedPlayer = client.character.name;
       }
-      client.character.lastWhisperedPlayer = targetClient.character.name;
-      targetClient.character.lastWhisperedPlayer = client.character.name;
 
       const message = args.join(" ");
 
-      server.sendChatText(
-        client,
-        `[Reply to ${targetClient.character.name}]: ${message}`
-      );
-      server.sendChatText(
-        targetClient,
-        `[Reply from ${client.character.name}]: ${message}`
-      );
+      server.sendChatText(client, `[Reply to ${targetPlayerName}]: ${message}`);
+
+      if (targetClient instanceof Client) {
+        server.sendChatText(
+          targetClient,
+          `[Reply from ${client.character.name}]: ${message}`
+        );
+      }
     }
   },
   {
@@ -912,9 +897,6 @@ export const commands: Array<Command> = [
         case "ranchito":
           position = new Float32Array([2185.32, 42.36, 2130.49, 1]);
           break;
-        case "drylake":
-          position = new Float32Array([479.46, 109.7, 2902.51, 1]);
-          break;
         case "dam":
           position = new Float32Array([-685, 69.96, 1185.49, 1]);
           break;
@@ -942,6 +924,21 @@ export const commands: Array<Command> = [
         case "hospital":
           position = new Float32Array([1895.4, 93.69, -2914.39, 1]);
           break;
+        case "bubbas":
+          position = new Float32Array([-469.08, 72.15, 2591.87, 1]);
+          break;
+        case "opfer":
+          position = new Float32Array([-1969.71, 74.16, 1206.5, 1]);
+          break;
+        case "crescent":
+          position = new Float32Array([-2688.24, 49.1, 2804.34, 1]);
+          break;
+        case "dart":
+          position = new Float32Array([-2661.66, 29.67, -909.78, 1]);
+          break;
+        case "spence":
+          position = new Float32Array([294.02, 296.73, 2120.74, 1]);
+          break;
         default:
           if (args.length < 3) {
             server.sendChatText(
@@ -951,7 +948,7 @@ export const commands: Array<Command> = [
             );
             server.sendChatText(
               client,
-              "Set location list: farm, zimms, pv, br, ranchito, drylake, dam, cranberry, church, desoto, toxic, radiotower, villas, military, hospital",
+              "Set location list: farm, zimms, pv, br, ranchito, dam, cranberry, church, desoto, toxic, radiotower, villas, military, hospital, opfer, bubbas, crescent, dart, spence",
               false
             );
             return;
@@ -1524,6 +1521,55 @@ export const commands: Array<Command> = [
     }
   },
   {
+    name: "listinfo",
+    permissionLevel: PermissionLevels.MODERATOR,
+    execute: async (
+      server: ZoneServer2016,
+      client: Client,
+      args: Array<string>
+    ) => {
+      if (!args[0]) {
+        server.sendChatText(
+          client,
+          `Correct usage: /listinfo {name | ZoneClientId}`
+        );
+        return;
+      }
+
+      const targetClient = server.getClientByNameOrLoginSession(
+        args[0].toString()
+      );
+      if (server.playerNotFound(client, args[0].toString(), targetClient)) {
+        return;
+      }
+
+      if (!targetClient || !(targetClient instanceof Client)) {
+        server.sendChatText(client, "Client not found.");
+        return;
+      }
+
+      if (targetClient.isAdmin) {
+        server.sendChatText(
+          client,
+          `${targetClient.character.name} is an admin!`
+        );
+      }
+
+      server.sendChatText(
+        client,
+        `Requesting modules and windows from: ${targetClient.character.name}`
+      );
+
+      server.sendData(targetClient, "H1emu.RequestModules", {});
+      server.sendData(targetClient, "H1emu.RequestWindows", {});
+      server.sendData(
+        targetClient,
+        "UpdateWeatherData",
+        server.weatherManager.weather
+      );
+    }
+  },
+  {
     name: "listwindows",
     permissionLevel: PermissionLevels.MODERATOR,
     execute: async (
@@ -1700,36 +1746,14 @@ export const commands: Array<Command> = [
         return;
       }
 
-      const actingClient = targetClient ?? client;
-      const characterId = server.generateGuid(),
-        loc = new Float32Array([
-          actingClient.character.state.position[0],
-          actingClient.character.state.position[1] + 700,
-          actingClient.character.state.position[2],
-          actingClient.character.state.position[3]
-        ]),
-        vehicle = new Vehicle2016(
-          characterId,
-          server.getTransientId(characterId),
-          9374,
-          loc,
-          actingClient.character.state.rotation,
-          server,
-          getCurrentServerTimeWrapper().getTruncatedU32(),
-          VehicleIds.PARACHUTE
-        );
-      server.worldObjectManager.createVehicle(server, vehicle, true);
-      server.sendData(actingClient, "ClientUpdate.UpdateLocation", {
-        position: loc,
-        triggerLoadingScreen: true
-      });
-      vehicle.onReadyCallback = (clientTriggered: Client) => {
-        // doing anything with vehicle before client gets fullvehicle packet breaks it
-        server.mountVehicle(clientTriggered, characterId);
-        // todo: when vehicle takeover function works, delete assignManagedObject call
-        server.assignManagedObject(clientTriggered, vehicle);
-        clientTriggered.vehicle.mountedVehicle = characterId;
-      };
+      if (targetClient) {
+        targetClient.character.state.position[1] += 700;
+        server.sendData(targetClient, "ClientUpdate.UpdateLocation", {
+          position: targetClient.character.state.position,
+          triggerLoadingScreen: true
+        });
+        server.deployParachute(targetClient);
+      }
     }
   },
   {
@@ -2345,30 +2369,47 @@ export const commands: Array<Command> = [
     name: "giverewardtoall",
     permissionLevel: PermissionLevels.ADMIN,
     execute: (server: ZoneServer2016, client: Client, args: Array<string>) => {
-      if (!args[0]) {
+      if (!args.length) {
         server.sendChatText(
           client,
-          "[ERROR] Usage /giverewardtoall {itemDefinitionId}"
+          "[ERROR] Usage /giverewardtoall {CrateID} [CrateID ...]"
         );
         return;
       }
-      const rewardId = Number(args[0]);
-      const validRewardItem = server.rewardManager.rewards.some(
-        (v) => v.itemId === rewardId
-      );
-      if (!validRewardItem) {
+
+      // Collect valid reward IDs
+      const rewardIds: number[] = [];
+      const invalid: string[] = [];
+
+      for (const arg of args) {
+        const rewardId = Number(arg);
+        const validRewardItem = server.rewardManager.rewards.some(
+          (v) => v.itemId === rewardId
+        );
+        if (!validRewardItem) {
+          invalid.push(arg);
+          continue;
+        }
+        rewardIds.push(rewardId);
+      }
+
+      if (!rewardIds.length) {
         server.sendChatText(
           client,
-          `[ERROR] ${rewardId} isn't a valid reward item`
+          `[ERROR]${invalid.length ? " Crate ID: " + invalid.join(", ") : ""} is not valid`
         );
         return;
       }
+
       server.sendAlertToAll(
-        `Admin ${client.character.name} rewarded all connected players with ${Items[rewardId]}`
+        `Admin ${client.character.name} has just initiated a crate drop`
       );
+
       for (const key in server._clients) {
         const c = server._clients[key];
-        server.rewardManager.addRewardToPlayer(c, rewardId);
+        for (const rewardId of rewardIds) {
+          server.rewardManager.addRewardToPlayer(c, rewardId);
+        }
       }
     }
   },
