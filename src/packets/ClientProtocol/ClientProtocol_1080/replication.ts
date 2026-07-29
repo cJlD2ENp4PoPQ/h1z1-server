@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -11,80 +11,199 @@
 //   Based on https://github.com/psemu/soe-network
 // ======================================================================
 
-import { PacketStructures } from "types/packetStructure";
-import {
-  packInteractionComponent,
-  packNpcComponent,
-  packUnsignedIntWith2bitLengthValue,
-  readUnsignedIntWith2bitLengthValue
-} from "./shared";
+import { PacketFields, PacketStructures } from "types/packetStructure";
+import { packUnsignedIntWith2bitLengthValue } from "./shared";
+import DataSchema from "h1z1-dataschema";
+
+export function packComponentNameString(name: string) {
+  const stringBuffer = Buffer.from(name.trim(), "ascii"),
+    nullBuffer = Buffer.from([0x00]),
+    lengthBuffer = Buffer.alloc(2);
+  lengthBuffer.writeUInt16LE(stringBuffer.length, 0);
+  return Buffer.concat([lengthBuffer, stringBuffer, nullBuffer]);
+}
+
+export const npcComponent: PacketFields = [
+  { name: "unknownDword1", type: "uint32", defaultValue: 634 },
+  { name: "unknownDword2", type: "uint32", defaultValue: 0 },
+  { name: "unknownDword3", type: "uint32", defaultValue: 0 },
+  { name: "nameId", type: "uint32", defaultValue: 0 },
+  { name: "unknownDword5", type: "uint32", defaultValue: 0 },
+  { name: "unknownDword6", type: "uint32", defaultValue: 0 },
+  { name: "unknownDword7", type: "uint32", defaultValue: 0 },
+  { name: "unknownFloatVector1", type: "floatvector3", defaultValue: 0 },
+  { name: "unknownFloatVector2", type: "floatvector3", defaultValue: 0 },
+  { name: "unknownDword8", type: "uint32", defaultValue: 0 },
+  { name: "unknownDword9", type: "uint32", defaultValue: 0 },
+  { name: "unknownQword1", type: "uint64string", defaultValue: "0" },
+  { name: "unknownDword10", type: "uint32", defaultValue: 0 },
+  { name: "unknownDword11", type: "uint32", defaultValue: 0 },
+  { name: "unknownByte1", type: "uint8", defaultValue: 0 },
+  { name: "unknownBoolean1", type: "boolean", defaultValue: true }
+];
+
+export function packClientInteractComponent(obj: any) {
+  const raw: Buffer = Buffer.alloc(11);
+  if (obj["distance"]) {
+    raw.writeFloatLE(obj["distance"], 0);
+  }
+
+  if (obj["disableInteractionGlow"] && obj["disableInteractionGlow"] == true) {
+    raw.writeUint8(1, 9);
+  }
+
+  raw.writeUint8(1, raw.length - 1);
+  return raw;
+}
+
+export function packNpcComponent(obj: any) {
+  switch (obj.componentName) {
+    case "ClientNpcComponent":
+      return DataSchema.pack(npcComponent, obj).data;
+    case "ClientInteractComponent":
+      return packClientInteractComponent(obj);
+    default:
+      throw new Error(
+        `Unknown componentName for NPC component: ${obj.componentName}`
+      );
+  }
+}
 
 export const replicationPackets: PacketStructures = [
   [
-    "Replication.InteractionComponent",
-    0xeb,
+    "Replication.CreateRepData",
+    0xeb00,
     {
       fields: [
-        { name: "opcode", type: "uint8", defaultValue: 4 },
+        {
+          name: "sequenceNumber",
+          type: "uint32",
+          defaultValue: 0
+        },
+        {
+          name: "propertyHash",
+          type: "uint32"
+        },
         {
           name: "transientId",
           type: "custom",
-          parser: readUnsignedIntWith2bitLengthValue,
           packer: packUnsignedIntWith2bitLengthValue
         },
         {
-          name: "rawComponent",
-          type: "custom",
-          parser: packInteractionComponent,
-          packer: packInteractionComponent,
-          defaultValue: packInteractionComponent
+          name: "unknownByte1",
+          type: "uint8",
+          defaultValue: 0
+        },
+        {
+          name: "unknownDword1",
+          type: "uint32",
+          defaultValue: 0
         }
       ]
     }
   ],
+  ["Replication.DestroyRepData", 0xeb01, {}],
   [
-    "Replication.NpcComponent",
+    "Replication.UpdateRepData",
+    0xeb02,
+    {
+      fields: [
+        {
+          name: "replicationId",
+          type: "uint32"
+        },
+        {
+          name: "sequenceNumber",
+          type: "uint8",
+          defaultValue: 0
+        },
+        {
+          name: "bufferSize",
+          type: "uint8",
+          defaultValue: 0x4e
+        },
+        {
+          name: "skip",
+          type: "uint8",
+          defaultValue: 0x4d
+        },
+        {
+          name: "updateAction",
+          type: "uint8",
+          defaultValue: 0x81
+        },
+        {
+          name: "dataValue",
+          type: "uint8",
+          defaultValue: 1
+        }
+      ]
+    }
+  ],
+  ["Replication.UpdateFullRepData", 0xeb03, {}],
+  [
+    "Replication.CreateComponent",
     0xeb04,
     {
       fields: [
         {
           name: "transientId",
           type: "custom",
-          parser: readUnsignedIntWith2bitLengthValue,
           packer: packUnsignedIntWith2bitLengthValue
         },
-        { name: "stringLength", type: "uint16", defaultValue: 18 },
-        //{ name: "componentName", type: "fixedlengthstring", defaultValue: "ClientNpcComponent" }, avoid test errors
         {
           name: "componentName",
-          type: "uint64string",
-          defaultValue: "0x704E746E65696C43"
-        },
-        {
-          name: "componentName2",
-          type: "uint64string",
-          defaultValue: "0x656E6F706D6F4363"
-        },
-        { name: "componentName3", type: "uint16", defaultValue: 29806 },
-        { name: "unkByte1", type: "uint8", defaultValue: 0 },
-        { name: "unkDword1", type: "uint32", defaultValue: 0 },
-        { name: "unkDword2", type: "uint32", defaultValue: 1 },
-        { name: "unkDword3", type: "uint32", defaultValue: 124 },
-        { name: "unkDword4", type: "uint32", defaultValue: 4136351497 },
-        { name: "unkByte2", type: "uint8", defaultValue: 0 },
-        { name: "unkDword5", type: "uint32", defaultValue: 82 },
-        { name: "unkDword6", type: "uint32", defaultValue: 2126 },
-        { name: "unkDword7", type: "uint32", defaultValue: 718 },
-        { name: "unkDword8", type: "uint32", defaultValue: 0 },
-        { name: "nameId", type: "uint32", defaultValue: 0 },
-        {
-          name: "rawComponent",
           type: "custom",
-          parser: packNpcComponent,
-          packer: packNpcComponent,
-          defaultValue: packNpcComponent
+          packer: packComponentNameString
+        },
+        {
+          name: "unknownArray1",
+          type: "array",
+          defaultValue: [],
+          fields: [
+            {
+              name: "unknownString1",
+              type: "string",
+              defaultValue: ""
+            }
+          ]
+        },
+        {
+          name: "unknownDword1",
+          type: "uint32",
+          defaultValue: 1
+        },
+        {
+          name: "sequenceNumber",
+          type: "uint32",
+          defaultValue: 0
+        },
+        {
+          name: "propertyHash",
+          type: "uint32",
+          defaultValue: 0
+        },
+        {
+          name: "unknownByte1",
+          type: "uint8",
+          defaultValue: 0
+        },
+        {
+          name: "payload",
+          type: "byteswithlength",
+          defaultValue: {},
+          fields: [
+            {
+              name: "bufferData",
+              type: "custom",
+              defaultValue: {},
+              packer: packNpcComponent
+            }
+          ]
         }
       ]
     }
-  ]
+  ],
+  ["Replication.DestroyComponent", 0xeb05, {}],
+  ["Replication.CreateComponentRepData", 0xeb06, {}]
 ];

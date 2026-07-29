@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -15,7 +15,7 @@ import { setInterval } from "timers";
 import { ZoneServer2016 } from "../zoneserver";
 import { AccountItems } from "../models/enums";
 import { ZoneClient2016 } from "../classes/zoneclient";
-import { isHalloween, isPosInPoi } from "../../../utils/utils";
+import { isHalloween } from "../../../utils/utils";
 
 interface Reward {
   itemId: AccountItems;
@@ -108,6 +108,14 @@ export class RewardManager {
       {
         itemId: AccountItems.REWARD_CRATE_H1EMUEXCLUSIVE,
         dropChances: 0
+      },
+      {
+        itemId: AccountItems.REWARD_CRATE_INFERNAL_2025,
+        dropChances: 0
+      },
+      {
+        itemId: AccountItems.REWARD_CRATE_FROST,
+        dropChances: 0
       }
     ];
     this.playTimerewards = [
@@ -186,7 +194,7 @@ export class RewardManager {
       if (
         client.character.playTime - client.character.lastDropPlaytime >
           (isHalloween() ? 60 : 120) &&
-        isPosInPoi(client.character.state.position)
+        this.server.isPosInPoi(client.character.state.position)
       ) {
         this.dropPlayTimeReward(client);
       }

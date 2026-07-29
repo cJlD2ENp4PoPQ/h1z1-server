@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -43,19 +43,27 @@ import {
   LOADOUT_CONTAINER_ID
 } from "../../../utils/constants";
 import { DeathItemDamageConfig } from "../data/deathitemdamageconfig";
+import { PluginManager } from "../managers/pluginmanager";
 
 const debugName = "ZoneServer",
   debug = require("debug")(debugName);
 
-const loadoutSlots = require("./../../../../data/2016/dataSources/LoadoutSlots.json"),
-  loadoutSlotItemClasses = require("./../../../../data/2016/dataSources/LoadoutSlotItemClasses.json"),
-  equipSlotItemClasses = require("./../../../../data/2016/dataSources/EquipSlotItemClasses.json");
+const loadoutSlots = PluginManager.loadServerData(
+    "2016/dataSources/LoadoutSlots.json"
+  ),
+  loadoutSlotItemClasses = PluginManager.loadServerData(
+    "2016/dataSources/LoadoutSlotItemClasses.json"
+  ),
+  equipSlotItemClasses = PluginManager.loadServerData(
+    "2016/dataSources/EquipSlotItemClasses.json"
+  );
 
 function getGender(actorModelId: number): number {
   switch (actorModelId) {
-    case ModelIds.ZOMBIE_FEMALE_WALKER:
+    case ModelIds.ZOMBIE_MALE_WALKER:
     case ModelIds.SURVIVOR_MALE_HEAD_01:
       return 1;
+    case ModelIds.ZOMBIE_FEMALE_WALKER:
     case ModelIds.ZOMBIE_MALE_HEAD:
     case ModelIds.SURVIVAL_FEMALE_HEAD_01:
       return 2;
@@ -118,6 +126,10 @@ export abstract class BaseFullCharacter extends BaseLightweightCharacter {
   isLightweight = false;
   gender: number;
   hoodState: string = "Up";
+
+  // Updates from constructionPermissionsManager, avoids checking all buildings every inventory access.
+  /** The guid of the building the character is inside of */
+  insideBuilding: string = "";
 
   /** The default items that will spawn on and with the BaseFullCharacter */
   defaultLoadout: LoadoutKit = [];
@@ -944,20 +956,29 @@ export abstract class BaseFullCharacter extends BaseLightweightCharacter {
 
   pGetAttachmentSlot(slotId: number) {
     const slot = this._equipment[slotId];
-    return slot
-      ? {
-          modelName: slot.modelName.replace(
-            /Up|Down/g,
-            this.hoodState == "Down" ? "Up" : "Down"
-          ),
-          effectId: slot.effectId || 0,
-          textureAlias: slot.textureAlias || "",
-          tintAlias: slot.tintAlias || "Default",
-          decalAlias: slot.decalAlias || "#",
-          slotId: slot.slotId,
-          SHADER_PARAMETER_GROUP: slot?.SHADER_PARAMETER_GROUP ?? []
-        }
-      : undefined;
+    if (!slot) return undefined;
+
+    const shaderGroup = slot.SHADER_PARAMETER_GROUP ?? [];
+    let shaderParams = shaderGroup;
+
+    if (slotId == 3 && shaderGroup.length == 4) {
+      shaderParams =
+        this.hoodState == "Down"
+          ? [shaderGroup[0], shaderGroup[1]]
+          : [shaderGroup[2], shaderGroup[3]];
+    }
+
+    const hoodReplace = this.hoodState == "Down" ? "Up" : "Down";
+
+    return {
+      modelName: slot.modelName.replace(/Up|Down/g, hoodReplace),
+      effectId: slot.effectId || 0,
+      textureAlias: slot.textureAlias || "",
+      tintAlias: slot.tintAlias || "Default",
+      decalAlias: slot.decalAlias || "#",
+      slotId: slot.slotId,
+      SHADER_PARAMETER_GROUP: shaderParams
+    };
   }
 
   pGetAttachmentSlots() {

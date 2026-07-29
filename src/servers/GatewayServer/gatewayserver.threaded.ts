@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -121,6 +121,11 @@ export class GatewayServerThreaded extends EventEmitter {
   async getSoeClientNetworkStats(soeClientId: string): Promise<string[]> {
     const fnName = this.getSoeClientNetworkStats.name;
     return this.askGatewayThread(fnName, soeClientId);
+  }
+
+  async getServerNetworkStats(): Promise<string[]> {
+    const fnName = this.getServerNetworkStats.name;
+    return this.askGatewayThread(fnName, "");
   }
 
   private askGatewayThread<T>(fnName: string, soeClientId: string): Promise<T> {

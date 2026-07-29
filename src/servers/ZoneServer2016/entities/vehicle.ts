@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -373,6 +373,7 @@ export class Vehicle2016 extends BaseLootableEntity {
         break;
       }
     }
+    server.explosiveManager.addEntity(this);
   }
 
   getSeatCount() {
@@ -723,6 +724,13 @@ export class Vehicle2016 extends BaseLootableEntity {
     );
     this.engineOn = true;
     this.startResourceUpdater(server);
+    if (this.vehicleId !== VehicleIds.SPECTATE) {
+      server.pushSound({
+        radius: 80,
+        position: this.state.position,
+        agitation: 5
+      });
+    }
   }
 
   stopEngine(server: ZoneServer2016) {
@@ -900,6 +908,14 @@ export class Vehicle2016 extends BaseLootableEntity {
         }
       );
       this.effectTags.push(hornEffect);
+
+      if (this.vehicleId !== VehicleIds.SPECTATE) {
+        server.pushSound({
+          radius: 250,
+          position: this.state.position,
+          agitation: 25
+        });
+      }
       return;
     }
 
@@ -1112,6 +1128,13 @@ export class Vehicle2016 extends BaseLootableEntity {
         ResourceTypes.FUEL,
         server._vehicles
       );
+      if (this.getSirenState() && this.vehicleId !== VehicleIds.SPECTATE) {
+        server.pushSound({
+          position: this.state.position,
+          radius: 200,
+          agitation: 20
+        });
+      }
       this.resourcesUpdater.refresh();
     }, 3000);
   }
@@ -1338,12 +1361,13 @@ export class Vehicle2016 extends BaseLootableEntity {
     );
     const deleted = server.deleteEntity(this.characterId, server._vehicles);
     if (!disableExplosion) {
-      server.explosionDamage(this);
+      server.explosionManager.queueExplosion(this);
     }
     //this.state.position[1] -= 0.4; // makes bags spawn under the map sometimes.
     // TODO: Have to revisit when the heightmap is implemented server side.
     // fix floating vehicle lootbags
     server.worldObjectManager.createLootbag(server, this);
+    server.explosiveManager.removeEntity(this);
     return deleted;
   }
 

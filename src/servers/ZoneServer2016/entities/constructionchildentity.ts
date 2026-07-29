@@ -1,4 +1,4 @@
-//   copyright (C) 2021 - 2023 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -45,7 +45,7 @@ function getRenderDistance(itemDefinitionId: number) {
       range = 420;
       break;
   }
-  return range;
+  return range ? range : 1000;
 }
 
 import { BaseLightweightCharacter } from "./baselightweightcharacter";
@@ -54,6 +54,7 @@ import {
   ConstructionPermissionIds,
   Effects,
   Items,
+  ModelIds,
   ResourceIds,
   StringIds
 } from "../models/enums";
@@ -85,8 +86,35 @@ import {
 import { ConstructionDoor } from "./constructiondoor";
 import { LootableConstructionEntity } from "./lootableconstructionentity";
 import { BaseEntity } from "./baseentity";
-import { ExplosiveEntity } from "./explosiveentity";
 import { DB_COLLECTIONS } from "../../../utils/enums";
+import { BoxObstacle, vec3 } from "recast-navigation";
+
+function setObstacle(
+  server: ZoneServer2016,
+  actorModelId: number,
+  position: Float32Array,
+  rotation: Float32Array
+): BoxObstacle | null {
+  const yaw = rotation[1];
+  switch (actorModelId) {
+    case ModelIds.RAMP:
+      return server.navManager.addObstacle(
+        position,
+        vec3.fromArray([5.5, 3.0, 3.5]),
+        yaw
+      );
+    case ModelIds.FOUNDATION_STAIRS:
+    // Disabled
+    // return server.navManager.addObstacle(
+    //   position,
+    //   vec3.fromArray([1.5, 3.0, 8.5]),
+    //   yaw
+    // );
+    default:
+      return null;
+  }
+}
+
 function getDamageRange(definitionId: Items): number {
   switch (definitionId) {
     case Items.METAL_WALL:
@@ -170,6 +198,9 @@ export class ConstructionChildEntity extends BaseLightweightCharacter {
   /** Time (milliseconds) the player has to undo placement on the ConstructionChildEntity */
   undoPlacementTime = 600000;
   destroyedEffect: number = Effects.PFX_Death_Barricade01;
+
+  /** Navmesh obstacle reference */
+  obstacleRef: BoxObstacle | null = null;
 
   /** Used by DecayManager, determines if the entity will be damaged the next decay tick */
   isDecayProtected: boolean = false;
@@ -288,10 +319,23 @@ export class ConstructionChildEntity extends BaseLightweightCharacter {
         this.boundsOn = getCubeBounds(position, 5, 5, angle, p, p + 1.8);
 
         break;
+      case Items.METAL_DOORWAY:
+      case Items.METAL_WALL:
+        this.fixedPosition = movePoint(position, -(rotation[1] + 1.575), 2.5);
+        break;
     }
 
     const itemDefinition = server.getItemDefinition(this.itemDefinitionId);
     if (itemDefinition) this.nameId = itemDefinition.NAME_ID;
+
+    if (!process.env.DISABLE_AI && server.aiEnabled) {
+      this.obstacleRef = setObstacle(server, actorModelId, position, rotation);
+      if (this.obstacleRef) {
+        console.log(
+          `[NavMesh] Added obstacle for construction ${this.characterId} (modelId: ${actorModelId})`
+        );
+      }
+    }
   }
 
   getOccupiedSlotMaps(): Array<OccupiedSlotMap> {
@@ -535,7 +579,13 @@ export class ConstructionChildEntity extends BaseLightweightCharacter {
       "Character.UpdateSimpleProxyHealth",
       this.pGetSimpleProxyHealth()
     );
-    if (damageInfo.damage > 0) {
+
+    const hasPerms = this.getHasPermission(
+      server,
+      damageInfo.entity,
+      ConstructionPermissionIds.DEMOLISH
+    );
+    if (damageInfo.damage > 0 && !hasPerms) {
       const timestamp = Date.now();
       const parent = this.getParent(server);
       if (parent) parent.lastDamagedTimestamp = timestamp;
@@ -544,7 +594,7 @@ export class ConstructionChildEntity extends BaseLightweightCharacter {
     }
 
     if (this.health > 0) return;
-    this.destroy(server, 3000);
+    this.destroy(server, damageInfo, 3000, hasPerms ? 30000 : 0);
   }
 
   isInside(position: Float32Array) {
@@ -583,7 +633,18 @@ export class ConstructionChildEntity extends BaseLightweightCharacter {
     }
   }
 
-  destroy(server: ZoneServer2016, destructTime = 0): boolean {
+  destroy(
+    server: ZoneServer2016,
+    damageInfo: DamageInfo = { entity: "", damage: 0 },
+    destructTime = 0,
+    slotCooldown = 30000
+  ): boolean {
+    if (this.obstacleRef) {
+      console.log(
+        `[NavMesh] Removed obstacle for world construction ${this.characterId}`
+      );
+      server.navManager.removeObstacle(this.obstacleRef);
+    }
     const deleted = server.deleteEntity(
       this.characterId,
       server._constructionSimple[this.characterId]
@@ -610,13 +671,12 @@ export class ConstructionChildEntity extends BaseLightweightCharacter {
       case Items.METAL_DOORWAY:
         slotMap = parent.occupiedWallSlots;
         updateSecured = true;
-        parent.wallSlotsPlacementTimer[this.getSlotNumber()] =
-          Date.now() + 30000;
+        parent.wallSlotsPlacementTimer[this.getSlotNumber()] = slotCooldown;
         break;
       case Items.METAL_WALL_UPPER:
         slotMap = parent.occupiedUpperWallSlots;
         parent.upperWallSlotsPlacementTimer[this.getSlotNumber()] =
-          Date.now() + 30000;
+          slotCooldown;
         break;
       case Items.SHELTER:
       case Items.SHELTER_LARGE:
@@ -625,9 +685,16 @@ export class ConstructionChildEntity extends BaseLightweightCharacter {
       case Items.STRUCTURE_STAIRS:
       case Items.STRUCTURE_STAIRS_UPPER:
       case Items.LOOKOUT_TOWER:
+        // Also break down doors on shelter destruction
+        if (damageInfo?.explosive) {
+          Object.values(this.occupiedWallSlots).forEach((slot) => {
+            if (slot instanceof ConstructionDoor) {
+              slot.destroy(server, damageInfo, destructTime, slotCooldown);
+            }
+          });
+        }
         slotMap = parent.occupiedShelterSlots;
-        parent.shelterSlotsPlacementTimer[this.getSlotNumber()] =
-          Date.now() + 30000;
+        parent.shelterSlotsPlacementTimer[this.getSlotNumber()] = slotCooldown;
         break;
       case Items.FOUNDATION_RAMP:
       case Items.FOUNDATION_STAIRS:
@@ -779,11 +846,6 @@ export class ConstructionChildEntity extends BaseLightweightCharacter {
     )
       return;
 
-    const itemDefinitionId =
-      sourceEntity instanceof ExplosiveEntity
-        ? sourceEntity.itemDefinitionId
-        : 0;
-
     if (
       server._worldSimpleConstruction[this.characterId] &&
       isPosInRadius(4, this.state.position, sourceEntity.state.position)
@@ -792,9 +854,8 @@ export class ConstructionChildEntity extends BaseLightweightCharacter {
         server,
         this,
         server.baseConstructionDamage,
-        sourceEntity.state.position,
         this.state.position,
-        itemDefinitionId
+        sourceEntity
       );
       return;
     }
@@ -826,9 +887,8 @@ export class ConstructionChildEntity extends BaseLightweightCharacter {
           server,
           this,
           damage,
-          sourceEntity.state.position,
           this.fixedPosition ? this.fixedPosition : this.state.position,
-          itemDefinitionId
+          sourceEntity
         );
         if (!client) return;
         server.constructionManager.sendBaseSecuredMessage(server, client, 1);
@@ -843,9 +903,8 @@ export class ConstructionChildEntity extends BaseLightweightCharacter {
       server,
       this,
       server.baseConstructionDamage,
-      sourceEntity.state.position,
       this.fixedPosition ? this.fixedPosition : this.state.position,
-      itemDefinitionId
+      sourceEntity
     );
   }
 }

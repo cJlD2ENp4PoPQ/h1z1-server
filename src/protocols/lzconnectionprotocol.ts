@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -214,6 +214,41 @@ const packets: PacketStructures = [
               ]
             }
           ]
+        }
+      ]
+    }
+  ],
+  [
+    "GlobalBroadcastRequest",
+    0x1a,
+    {
+      fields: [
+        { name: "broadcastType", type: "uint8", defaultValue: 0 },
+        { name: "initiatorName", type: "string", defaultValue: "" },
+        { name: "message", type: "string", defaultValue: "" },
+        {
+          name: "rewardIds",
+          type: "array",
+          defaultValue: [],
+          fields: [{ name: "rewardId", type: "uint32", defaultValue: 0 }]
+        }
+      ]
+    }
+  ],
+  [
+    "GlobalBroadcastForward",
+    0x1b,
+    {
+      fields: [
+        { name: "broadcastType", type: "uint8", defaultValue: 0 },
+        { name: "initiatorName", type: "string", defaultValue: "" },
+        { name: "message", type: "string", defaultValue: "" },
+        { name: "originServerId", type: "uint32", defaultValue: 0 },
+        {
+          name: "rewardIds",
+          type: "array",
+          defaultValue: [],
+          fields: [{ name: "rewardId", type: "uint32", defaultValue: 0 }]
         }
       ]
     }

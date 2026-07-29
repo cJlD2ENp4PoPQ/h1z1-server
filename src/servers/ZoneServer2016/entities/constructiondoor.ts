@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -31,7 +31,6 @@ import { ConstructionParentEntity } from "./constructionparententity";
 import { ConstructionChildEntity } from "./constructionchildentity";
 import { CUSTOM_PROFILES_IDS } from "../../../utils/enums";
 import { BaseEntity } from "./baseentity";
-import { ExplosiveEntity } from "./explosiveentity";
 function getDamageRange(definitionId: number): number {
   switch (definitionId) {
     case Items.METAL_GATE:
@@ -39,7 +38,7 @@ function getDamageRange(definitionId: number): number {
     case Items.DOOR_WOOD:
     case Items.DOOR_METAL:
     case Items.DOOR_BASIC:
-      return 2.5;
+      return 4.3;
     default:
       return 2;
   }
@@ -153,17 +152,29 @@ export class ConstructionDoor extends DoorEntity {
       ResourceTypes.CONDITION,
       server._constructionDoors
     );
-    if (damageInfo.damage > 0) {
+    if (
+      damageInfo.damage > 0 &&
+      !this.getHasPermission(
+        server,
+        damageInfo.entity,
+        ConstructionPermissionIds.DEMOLISH
+      )
+    ) {
       const timestamp = Date.now();
       const parentFoundation = this.getParentFoundation(server);
       if (parentFoundation) parentFoundation.lastDamagedTimestamp = timestamp;
     }
 
     if (this.health > 0) return;
-    this.destroy(server, 3000);
+    this.destroy(server, damageInfo, 3000);
   }
 
-  destroy(server: ZoneServer2016, destructTime = 0): boolean {
+  destroy(
+    server: ZoneServer2016,
+    damageInfo: DamageInfo = { entity: "", damage: 0 },
+    destructTime = 0,
+    slotCooldown = 30000
+  ): boolean {
     const deleted = server.deleteEntity(
       this.characterId,
       server._constructionDoors,
@@ -186,8 +197,7 @@ export class ConstructionDoor extends DoorEntity {
       case Items.DOOR_METAL:
         slotMap = parent.occupiedWallSlots;
         updateSecured = true;
-        parent.wallSlotsPlacementTimer[this.getSlotNumber()] =
-          Date.now() + 30000;
+        parent.wallSlotsPlacementTimer[this.getSlotNumber()] = slotCooldown;
         break;
     }
     if (slotMap) parent.clearSlot(this.getSlotNumber(), slotMap);
@@ -423,10 +433,6 @@ export class ConstructionDoor extends DoorEntity {
     if (server.isPvE) {
       return;
     }
-    const itemDefinitionId =
-      sourceEntity instanceof ExplosiveEntity
-        ? sourceEntity.itemDefinitionId
-        : 0;
 
     if (
       !isPosInRadius(
@@ -452,9 +458,8 @@ export class ConstructionDoor extends DoorEntity {
       server,
       this,
       server.baseConstructionDamage,
-      sourceEntity.state.position,
       this.fixedPosition ? this.fixedPosition : this.state.position,
-      itemDefinitionId
+      sourceEntity
     );
   }
 }

@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -13,7 +13,13 @@
 
 import { ConstructionChildEntity } from "./constructionchildentity";
 import { LootableConstructionEntity } from "./lootableconstructionentity";
-import { ConstructionPermissionIds, Items, StringIds } from "../models/enums";
+import {
+  ConstructionPermissionIds,
+  Items,
+  ModelIds,
+  StringIds
+} from "../models/enums";
+import { BoxObstacle, vec3 } from "recast-navigation";
 import { ZoneServer2016 } from "../zoneserver";
 import {
   getConstructionSlotId,
@@ -39,7 +45,6 @@ import {
   wallSlotDefinitions
 } from "../data/constructionslots";
 import { BaseEntity } from "./baseentity";
-import { ExplosiveEntity } from "./explosiveentity";
 
 function getDamageRange(definitionId: number): number {
   switch (definitionId) {
@@ -63,6 +68,49 @@ function getMaxHealth(itemDefinitionId: Items): number {
       return 250000;
     default:
       return 1000000;
+  }
+}
+
+function setObstacle(
+  server: ZoneServer2016,
+  actorModelId: number,
+  position: Float32Array,
+  rotation: Float32Array
+): BoxObstacle | null {
+  const yaw = rotation[1];
+  switch (actorModelId) {
+    case ModelIds.DECK_FOUNDATION:
+      return server.navManager.addObstacle(
+        position,
+        vec3.fromArray([7.5, 2.0, 7.5]),
+        yaw
+      );
+    case ModelIds.DECK_EXPANSION:
+      return server.navManager.addObstacle(
+        position,
+        vec3.fromArray([7.5, 2.0, 2.5]),
+        yaw
+      );
+    case ModelIds.WOOD_SHACK:
+      return server.navManager.addObstacle(
+        position,
+        vec3.fromArray([2.35, 2.0, 2.5]),
+        yaw
+      );
+    case ModelIds.METAL_SHACK:
+      return server.navManager.addObstacle(
+        position,
+        vec3.fromArray([2.35, 2.0, 2.5]),
+        yaw
+      );
+    case ModelIds.SMALL_SHACK:
+      return server.navManager.addObstacle(
+        position,
+        vec3.fromArray([1.75, 2.0, 1.25]),
+        yaw
+      );
+    default:
+      return null;
   }
 }
 
@@ -92,6 +140,9 @@ export class ConstructionParentEntity extends ConstructionChildEntity {
    * uses slot (number) for indexing
    */
   occupiedRampSlots: { [slot: number]: ConstructionChildEntity } = {};
+
+  /** Navmesh obstacle reference */
+  obstacleRef: BoxObstacle | null = null;
 
   /** Last time the ConstructionParentEntity was damaged */
   lastDamagedTimestamp: number = 0;
@@ -252,6 +303,15 @@ export class ConstructionParentEntity extends ConstructionChildEntity {
 
     const itemDefinition = server.getItemDefinition(this.itemDefinitionId);
     if (itemDefinition) this.nameId = itemDefinition.NAME_ID;
+
+    if (!process.env.DISABLE_AI && server.aiEnabled) {
+      this.obstacleRef = setObstacle(server, actorModelId, position, rotation);
+      if (this.obstacleRef) {
+        console.log(
+          `[NavMesh] Added obstacle for construction ${this.characterId} (modelId: ${actorModelId})`
+        );
+      }
+    }
   }
 
   getOccupiedSlotMaps(): Array<OccupiedSlotMap> {
@@ -838,7 +898,18 @@ export class ConstructionParentEntity extends ConstructionChildEntity {
     return false;
   }
 
-  destroy(server: ZoneServer2016, destructTime = 0): boolean {
+  destroy(
+    server: ZoneServer2016,
+    damageInfo: DamageInfo = { entity: "", damage: 0 },
+    destructTime = 0,
+    slotCooldown = 30000
+  ): boolean {
+    if (this.obstacleRef) {
+      console.log(
+        `[NavMesh] Removed obstacle for construction ${this.characterId}`
+      );
+      server.navManager.removeObstacle(this.obstacleRef);
+    }
     const deleted = server.deleteEntity(
       this.characterId,
       server._constructionFoundations,
@@ -874,12 +945,11 @@ export class ConstructionParentEntity extends ConstructionChildEntity {
       case Items.DOOR_METAL:
       case Items.METAL_WALL:
       case Items.METAL_DOORWAY:
-        parent.wallSlotsPlacementTimer[this.getSlotNumber()] =
-          Date.now() + 30000;
+        parent.wallSlotsPlacementTimer[this.getSlotNumber()] = slotCooldown;
         break;
       case Items.METAL_WALL_UPPER:
         parent.upperWallSlotsPlacementTimer[this.getSlotNumber()] =
-          Date.now() + 30000;
+          slotCooldown;
         break;
       case Items.SHELTER:
       case Items.SHELTER_LARGE:
@@ -888,8 +958,7 @@ export class ConstructionParentEntity extends ConstructionChildEntity {
       case Items.STRUCTURE_STAIRS:
       case Items.STRUCTURE_STAIRS_UPPER:
       case Items.LOOKOUT_TOWER:
-        parent.shelterSlotsPlacementTimer[this.getSlotNumber()] =
-          Date.now() + 30000;
+        parent.shelterSlotsPlacementTimer[this.getSlotNumber()] = slotCooldown;
         break;
       case Items.FOUNDATION_RAMP:
       case Items.FOUNDATION_STAIRS:
@@ -1039,7 +1108,14 @@ export class ConstructionParentEntity extends ConstructionChildEntity {
       "Character.UpdateSimpleProxyHealth",
       this.pGetSimpleProxyHealth()
     );
-    if (damageInfo.damage > 0) {
+    if (
+      damageInfo.damage > 0 &&
+      !this.getHasPermission(
+        server,
+        damageInfo.entity,
+        ConstructionPermissionIds.DEMOLISH
+      )
+    ) {
       const timestamp = Date.now();
       const parent = this.getParent(server);
       if (parent) parent.lastDamagedTimestamp = timestamp;
@@ -1047,7 +1123,7 @@ export class ConstructionParentEntity extends ConstructionChildEntity {
       if (parentFoundation) parentFoundation.lastDamagedTimestamp = timestamp;
     }
     if (this.health > 0) return;
-    this.destroy(server, 3000);
+    this.destroy(server, damageInfo, 3000);
   }
 
   OnExplosiveHit(server: ZoneServer2016, sourceEntity: BaseEntity) {
@@ -1063,11 +1139,6 @@ export class ConstructionParentEntity extends ConstructionChildEntity {
     )
       return;
 
-    const itemDefinitionId =
-      sourceEntity instanceof ExplosiveEntity
-        ? sourceEntity.itemDefinitionId
-        : 0;
-
     switch (this.itemDefinitionId) {
       case Items.SHACK:
       case Items.SHACK_SMALL:
@@ -1076,9 +1147,8 @@ export class ConstructionParentEntity extends ConstructionChildEntity {
           server,
           this,
           server.baseConstructionDamage,
-          sourceEntity.state.position,
           this.state.position,
-          itemDefinitionId
+          sourceEntity
         );
     }
   }

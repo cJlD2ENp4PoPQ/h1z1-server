@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -30,19 +30,22 @@ import {
   getDateString
 } from "../../../../utils/utils";
 import { ExplosiveEntity } from "../../entities/explosiveentity";
-import { Npc } from "../../entities/npc";
 import { ZoneClient2016 as Client } from "../../classes/zoneclient";
 import {
   characterBuildKitLoadout,
   characterTestKitLoadout,
   characterSkinsLoadout,
   characterKitLoadout,
-  characterVehicleKit
+  characterVehicleKit,
+  characterFarmKitLoadout
 } from "../../data/loadouts";
+import { emoteMap, emoteNames, defaultEmotes } from "../../data/emotes";
 import {
   Effects,
   EquipSlots,
   Items,
+  ModelIds,
+  NpcIds,
   ResourceIds,
   ResourceTypes,
   VehicleIds
@@ -63,8 +66,21 @@ import { FullCharacterSaveData } from "types/savedata";
 import { scheduler } from "node:timers/promises";
 import { Vehicle2016 } from "../../entities/vehicle";
 import { AddSimpleNpc } from "types/zone2016packets";
+import { Npc } from "../../entities/npc";
+import { ZombieWalker } from "../../entities/zombiewalker";
+import { ZombieScreamer } from "../../entities/zombiescreamer";
+import { Exploder } from "../../entities/exploder";
+import { Gasser } from "../../entities/gasser";
+import { Deer } from "../../entities/deer";
+import { DeerEvents } from "../../jsms/deer.jsm";
+import { ZombieEvents } from "../../jsms/zombie.jsm";
+import { Wolf } from "../../entities/wolf";
+import { Bear } from "../../entities/bear";
 import { writeFileSync } from "node:fs";
-const itemDefinitions = require("./../../../../../data/2016/dataSources/ServerItemDefinitions.json");
+import { PluginManager } from "../../managers/pluginmanager";
+const itemDefinitions = PluginManager.loadServerData(
+  "2016/dataSources/ServerItemDefinitions.json"
+);
 
 export const commands: Array<Command> = [
   //#region DEFAULT PERMISSIONS
@@ -77,6 +93,26 @@ export const commands: Array<Command> = [
       args: Array<string>
     ) => {
       /* handled clientside */
+    }
+  },
+  {
+    name: "colorkeys",
+    permissionLevel: PermissionLevels.DEFAULT,
+    execute: (server: ZoneServer2016, client: Client, args: Array<string>) => {
+      client.colorKeysEnabled = !client.colorKeysEnabled;
+      if (client.colorKeysEnabled) {
+        server.updateColorKeyEffect(client);
+        server.sendChatText(client, "Color keys enabled.");
+      } else {
+        if (client.activeColorKeyPeriod) {
+          server.removeScreenEffect(
+            client,
+            server._screenEffects[client.activeColorKeyPeriod]
+          );
+          client.activeColorKeyPeriod = undefined;
+        }
+        server.sendChatText(client, "Color keys disabled.");
+      }
     }
   },
   {
@@ -124,6 +160,7 @@ export const commands: Array<Command> = [
       client: Client,
       args: Array<string>
     ) => {
+      if (server._soloMode) return;
       const collection = server._db.collection(DB_COLLECTIONS.KILLS);
       const query = await collection
         .aggregate([
@@ -344,6 +381,74 @@ export const commands: Array<Command> = [
     }
   },
   {
+    name: "findloot",
+    permissionLevel: PermissionLevels.MODERATOR,
+    execute: (server: ZoneServer2016, client: Client, args: Array<string>) => {
+      if (!args[0] || !args[1]) {
+        server.sendChatText(client, "[ERROR] Usage /findloot [itemId] [range]");
+        return;
+      }
+      let totalCount = 0;
+      for (const a in server._lootableConstruction) {
+        const lootableConstrucion = server._lootableConstruction[a];
+        if (
+          !isPosInRadius(
+            Number(args[1]),
+            client.character.state.position,
+            lootableConstrucion.state.position
+          )
+        )
+          continue;
+        let count = 0;
+        for (const b in lootableConstrucion._containers) {
+          const container = lootableConstrucion._containers[b];
+          for (const c in container.items) {
+            const item = container.items[c];
+            if (item.itemDefinitionId == Number(args[0])) {
+              count += item.stackCount;
+              totalCount += item.stackCount;
+            }
+          }
+        }
+        if (count) {
+          server.sendChatText(
+            client,
+            `COUNT: ${count} POSITION: [ ${lootableConstrucion.state.position[0]} ${lootableConstrucion.state.position[1]} ${lootableConstrucion.state.position[2]} ]`
+          );
+        }
+      }
+      for (const a in server._worldLootableConstruction) {
+        const lootableConstrucion = server._worldLootableConstruction[a];
+        if (
+          !isPosInRadius(
+            Number(args[1]),
+            client.character.state.position,
+            lootableConstrucion.state.position
+          )
+        )
+          continue;
+        let count = 0;
+        for (const b in lootableConstrucion._containers) {
+          const container = lootableConstrucion._containers[b];
+          for (const c in container.items) {
+            const item = container.items[c];
+            if (item.itemDefinitionId == Number(args[0])) {
+              count += item.stackCount;
+              totalCount += item.stackCount;
+            }
+          }
+        }
+        if (count) {
+          server.sendChatText(
+            client,
+            `COUNT: ${count} POSITION: [ ${lootableConstrucion.state.position[0]} ${lootableConstrucion.state.position[1]} ${lootableConstrucion.state.position[2]} ]`
+          );
+        }
+      }
+      server.sendChatText(client, `TOTAL COUNT: ${totalCount}`);
+    }
+  },
+  {
     name: "netstats",
     permissionLevel: PermissionLevels.DEFAULT,
     execute: async (
@@ -351,11 +456,11 @@ export const commands: Array<Command> = [
       client: Client,
       args: Array<string>
     ) => {
-      const stats = server._gatewayServer.getSoeClientNetworkStats(
+      const stats = await server._gatewayServer.getSoeClientNetworkStats(
         client.soeClientId
       );
       if (stats) {
-        const serverStats = server._gatewayServer.getServerNetworkStats();
+        const serverStats = await server._gatewayServer.getServerNetworkStats();
         stats.push(serverStats[0]);
         for (let index = 0; index < stats.length; index++) {
           const stat = stats[index];
@@ -372,10 +477,10 @@ export const commands: Array<Command> = [
       client: Client,
       args: Array<string>
     ) => {
-      const stats = server._gatewayServer.getSoeClientNetworkStats(
+      const stats = await server._gatewayServer.getSoeClientNetworkStats(
         client.soeClientId
       );
-      const serverStats = server._gatewayServer.getServerNetworkStats();
+      const serverStats = await server._gatewayServer.getServerNetworkStats();
       if (stats) {
         server.sendChatText(client, stats[2], true);
         server.sendChatText(client, serverStats[0], false);
@@ -412,40 +517,29 @@ export const commands: Array<Command> = [
   {
     name: "emote",
     permissionLevel: PermissionLevels.DEFAULT,
-    execute: (server: ZoneServer2016, client: Client, args: Array<string>) => {
-      if (server.isPvE) {
-        const animationId = Number(args[0]);
-        if (!animationId || animationId > MAX_UINT32) {
-          server.sendChatText(client, "Usage /emote <id>");
-          return;
-        }
+    execute: async (
+      server: ZoneServer2016,
+      client: Client,
+      args: Array<string>
+    ) => {
+      if (!args[0]) {
+        server.sendChatText(client, "Usage /emote <name>");
+        return;
+      }
 
-        if (!server.isPvE) {
-          switch (animationId) {
-            case 18:
-            case 21:
-            case 29:
-            case 30:
-            case 39:
-            case 88:
-            case 34:
-            case 35:
-            case 43:
-            case 46:
-            case 51:
-            case 58:
-            case 68:
-            case 95:
-            case 97:
-            case 101:
-            case 102:
-              server.sendChatText(
-                client,
-                "[ERROR] This emote has been disabled due to abuse."
-              );
-              return;
-          }
-        }
+      const emoteName = args[0].toLowerCase();
+      const animationId = emoteMap[emoteName];
+
+      if (!animationId) {
+        server.sendChatText(
+          client,
+          `Unknown emote: ${args[0]}. Use /emotelist to see available emotes.`
+        );
+        return;
+      }
+
+      // Check if this emote is in the allowed list (no ownership check needed)
+      if (defaultEmotes.includes(animationId)) {
         server.sendDataToAllWithSpawnedEntity(
           server._characters,
           client.character.characterId,
@@ -455,12 +549,89 @@ export const commands: Array<Command> = [
             animationId: animationId
           }
         );
-      } else {
-        server.sendChatText(
-          client,
-          "[ERROR] Emotes are currently disabled in PvP servers."
-        );
+        return;
       }
+
+      // Check if player owns the emote as an account item
+      let hasEmote = false;
+
+      // Check all account items for emote
+      const accountItems =
+        await server.accountInventoriesManager.getAccountItems(
+          client.loginSessionId
+        );
+      for (const accountItem of accountItems) {
+        if (accountItem && accountItem.itemDefinitionId) {
+          const itemDef = server.getItemDefinition(
+            accountItem.itemDefinitionId
+          );
+          if (itemDef && itemDef.PARAM1 === animationId) {
+            hasEmote = true;
+            break;
+          }
+        }
+      }
+
+      if (!hasEmote) {
+        server.sendChatText(client, "[ERROR] You don't own this emote");
+        return;
+      }
+
+      server.sendDataToAllWithSpawnedEntity(
+        server._characters,
+        client.character.characterId,
+        "Animation.Play",
+        {
+          characterId: client.character.characterId,
+          animationId: animationId
+        }
+      );
+    }
+  },
+  {
+    name: "emotelist",
+    permissionLevel: PermissionLevels.DEFAULT,
+    execute: async (
+      server: ZoneServer2016,
+      client: Client,
+      args: Array<string>
+    ) => {
+      const ownedEmotes: string[] = [];
+
+      // Add default emotes that don't require ownership
+      for (const [emoteName, animationId] of Object.entries(emoteMap)) {
+        if (defaultEmotes.includes(animationId)) {
+          ownedEmotes.push(emoteName);
+        }
+      }
+
+      // Check account items for owned emotes
+      const accountItems =
+        await server.accountInventoriesManager.getAccountItems(
+          client.loginSessionId
+        );
+      for (const accountItem of accountItems) {
+        if (accountItem && accountItem.itemDefinitionId) {
+          const itemDef = server.getItemDefinition(
+            accountItem.itemDefinitionId
+          );
+          if (itemDef && itemDef.PARAM1) {
+            // Find emote name by animation ID
+            for (const [emoteName, animationId] of Object.entries(emoteMap)) {
+              if (
+                animationId === itemDef.PARAM1 &&
+                !defaultEmotes.includes(animationId)
+              ) {
+                ownedEmotes.push(emoteName);
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      server.sendChatText(client, "Available emotes:", true);
+      server.sendChatText(client, ownedEmotes.sort().join(", "));
     }
   },
   {
@@ -1418,6 +1589,8 @@ export const commands: Array<Command> = [
     execute: (server: ZoneServer2016, client: Client, args: Array<string>) => {
       const direction = (args[0] || "up").toLowerCase(); // Default direction is "up"
       const heightInput = args[1];
+      const playerName = args[2]; // Optional player name
+
       const height = heightInput !== undefined ? parseFloat(heightInput) : 50;
       if (isNaN(height)) {
         server.sendChatText(
@@ -1426,7 +1599,24 @@ export const commands: Array<Command> = [
         );
         return;
       }
-      const newPosition = new Float32Array(client.character.state.position);
+
+      // Determine target client
+      let targetClient = client;
+      if (playerName) {
+        const foundClient = server.getClientByNameOrLoginSession(playerName);
+        if (server.playerNotFound(client, playerName, foundClient)) {
+          return;
+        }
+        if (!foundClient || !(foundClient instanceof Client)) {
+          server.sendChatText(client, "Client not found.");
+          return;
+        }
+        targetClient = foundClient;
+      }
+
+      const newPosition = new Float32Array(
+        targetClient.character.state.position
+      );
       switch (direction) {
         case "up":
           newPosition[1] += height;
@@ -1441,11 +1631,20 @@ export const commands: Array<Command> = [
           );
           return;
       }
-      server.sendData(client, "ClientUpdate.UpdateLocation", {
+
+      server.sendData(targetClient, "ClientUpdate.UpdateLocation", {
         position: newPosition,
         triggerLoadingScreen: false
       });
-      server.sendChatText(client, `Moved ${direction} by ${height}`);
+
+      if (targetClient === client) {
+        server.sendChatText(client, `Moved ${direction} by ${height}`);
+      } else {
+        server.sendChatText(
+          client,
+          `Moved ${targetClient.character.name} ${direction} by ${height}`
+        );
+      }
     }
   },
   {
@@ -1725,6 +1924,27 @@ export const commands: Array<Command> = [
     }
   },
   {
+    name: "setmaxpacketloss",
+    permissionLevel: PermissionLevels.ADMIN,
+    execute: (server: ZoneServer2016, client: Client, args: Array<string>) => {
+      if (!args[0]) {
+        server.sendChatText(client, "You must specify a value");
+        return;
+      }
+      const packetloss = Number(args[0]);
+      if (packetloss < 1) {
+        server.sendChatText(client, "Minimum packet loss to specify is 1");
+        return;
+      }
+      server.sendChatText(
+        client,
+        `Max packet loss set to ${packetloss} from ${server.maxPacketLoss}`,
+        false
+      );
+      server.maxPacketLoss = packetloss;
+    }
+  },
+  {
     name: "heal",
     permissionLevel: PermissionLevels.MODERATOR,
     execute: async (
@@ -1870,7 +2090,7 @@ export const commands: Array<Command> = [
         if (object.characterId == client.character.characterId) return;
         server.despawnEntity(object.characterId);
       });
-      client.spawnedEntities = new Set();
+      client.spawnedEntities.clear();
       server._lootableProps = {};
       server._npcs = {};
       server._spawnedItems = {};
@@ -2044,22 +2264,137 @@ export const commands: Array<Command> = [
     name: "spawnnpc",
     permissionLevel: PermissionLevels.ADMIN,
     execute: (server: ZoneServer2016, client: Client, args: Array<string>) => {
-      const guid = server.generateGuid();
-      const transientId = server.getTransientId(guid);
       if (!args[0]) {
         server.sendChatText(client, "[ERROR] You need to specify a model id !");
         return;
       }
-      const characterId = server.generateGuid();
-      const npc = new Npc(
-        characterId,
-        transientId,
+      server.worldObjectManager.createNpc(
+        server,
         Number(args[0]),
         client.character.state.position,
-        client.character.state.lookAt,
-        server
+        client.character.state.lookAt
       );
-      server._npcs[characterId] = npc; // save npc
+    }
+  },
+  {
+    name: "spawn",
+    permissionLevel: PermissionLevels.ADMIN,
+    execute: (server: ZoneServer2016, client: Client, args: Array<string>) => {
+      const npcTypes: { [name: string]: number } = {
+        zombie: ModelIds.ZOMBIE_FEMALE_WALKER,
+        zombie_female: ModelIds.ZOMBIE_FEMALE_WALKER,
+        zombie_male: ModelIds.ZOMBIE_MALE_WALKER,
+        zombie_screamer: ModelIds.ZOMBIE_SCREAMER,
+        gasser: ModelIds.ZOMBIE_MALE_WALKER,
+        exploder: ModelIds.ZOMBIE_MALE_WALKER,
+        deer: ModelIds.DEER,
+        deer_buck: ModelIds.DEER_BUCK,
+        wolf: ModelIds.WOLF,
+        bear: ModelIds.BEAR
+      };
+      const availableTypes = Object.keys(npcTypes).join(", ");
+      if (!args[0]) {
+        server.sendChatText(
+          client,
+          `[ERROR] Usage: /spawn <type> [count]\nAvailable types: ${availableTypes}`
+        );
+        return;
+      }
+      const modelId = npcTypes[args[0]];
+      if (modelId === undefined) {
+        server.sendChatText(
+          client,
+          `[ERROR] Unknown NPC type "${args[0]}". Available: ${availableTypes}`
+        );
+        return;
+      }
+      const count = args[1] ? parseInt(args[1], 10) : 1;
+      if (isNaN(count) || count < 1 || count > 500) {
+        server.sendChatText(
+          client,
+          `[ERROR] Count must be a number between 1 and 500`
+        );
+        return;
+      }
+      const scatterRadius = 10;
+      const npcIdMap: Record<string, NpcIds> = {
+        exploder: NpcIds.EXPLODER,
+        gasser: NpcIds.GASSER
+      };
+      for (let i = 0; i < count; i++) {
+        const offsetX = (Math.random() - 0.5) * 2 * scatterRadius;
+        const offsetZ = (Math.random() - 0.5) * 2 * scatterRadius;
+        const pos = new Float32Array([
+          client.character.state.position[0] + offsetX,
+          client.character.state.position[1],
+          client.character.state.position[2] + offsetZ,
+          1
+        ]);
+        server.worldObjectManager.createNpc(
+          server,
+          modelId,
+          pos,
+          client.character.state.lookAt,
+          0,
+          npcIdMap[args[0]]
+        );
+      }
+      server.sendChatText(
+        client,
+        `Spawned ${count} ${args[0]} around your position`
+      );
+    }
+  },
+  {
+    name: "despawn",
+    permissionLevel: PermissionLevels.ADMIN,
+    execute: (server: ZoneServer2016, client: Client, args: Array<string>) => {
+      const npcGroups: { [name: string]: (npc: Npc) => boolean } = {
+        zombie: (npc) =>
+          npc instanceof ZombieWalker || npc instanceof ZombieScreamer,
+        zombie_female: (npc) =>
+          npc instanceof ZombieWalker &&
+          npc.actorModelId === ModelIds.ZOMBIE_FEMALE_WALKER,
+        zombie_male: (npc) =>
+          npc instanceof ZombieWalker &&
+          npc.actorModelId === ModelIds.ZOMBIE_MALE_WALKER,
+        zombie_screamer: (npc) => npc instanceof ZombieScreamer,
+        exploder: (npc) => npc instanceof Exploder,
+        deer: (npc) =>
+          npc instanceof Deer && npc.actorModelId === ModelIds.DEER,
+        deer_buck: (npc) =>
+          npc instanceof Deer && npc.actorModelId === ModelIds.DEER_BUCK,
+        wolf: (npc) => npc instanceof Wolf,
+        bear: (npc) => npc instanceof Bear,
+        all: () => true
+      };
+      const availableTypes = Object.keys(npcGroups).join(", ");
+      if (!args[0]) {
+        server.sendChatText(
+          client,
+          `[ERROR] Usage: /despawn <type>\nAvailable types: ${availableTypes}`
+        );
+        return;
+      }
+      const matcher = npcGroups[args[0]];
+      if (!matcher) {
+        server.sendChatText(
+          client,
+          `[ERROR] Unknown type "${args[0]}". Available: ${availableTypes}`
+        );
+        return;
+      }
+      let count = 0;
+      for (const characterId in server._npcs) {
+        const npc = server._npcs[characterId];
+        if (!matcher(npc)) continue;
+        if (npc.spawnerId) {
+          delete server.worldObjectManager.spawnedNpcs[npc.spawnerId];
+        }
+        server.deleteEntity(characterId, server._npcs);
+        count++;
+      }
+      server.sendChatText(client, `Despawned ${count} ${args[0]} NPC(s).`);
     }
   },
   {
@@ -2604,6 +2939,13 @@ export const commands: Array<Command> = [
           );
           client.character.equipLoadout(server, characterBuildKitLoadout, true);
           break;
+        case "farm":
+          client.character.equipItem(
+            server,
+            server.generateItem(Items.FANNY_PACK_DEV)
+          );
+          client.character.equipLoadout(server, characterFarmKitLoadout, true);
+          break;
         default:
           server.sendChatText(
             client,
@@ -2630,8 +2972,10 @@ export const commands: Array<Command> = [
     name: "addallitems",
     permissionLevel: PermissionLevels.DEV,
     execute: (server: ZoneServer2016, client: Client, args: Array<string>) => {
-      server.sendChatText(client, "Disabled for now.");
-      /*
+      if (!server._soloMode) {
+        server.sendChatText(client, "Disabled for now.");
+        return;
+      }
       client.character.equipItem(
         server,
         server.generateItem(Items.FANNY_PACK_DEV)
@@ -2639,24 +2983,31 @@ export const commands: Array<Command> = [
       server.sendChatText(client, "Adding 1x of all items to inventory.");
       for (const itemDef of Object.values(server._itemDefinitions)) {
         client.character.lootItem(server, server.generateItem(itemDef.ID));
-        Scheduler.yield();
+        scheduler.yield();
       }
-      */
     }
   },
   {
     name: "spawnloot",
     permissionLevel: PermissionLevels.ADMIN,
-    execute: (server: ZoneServer2016, client: Client, args: Array<string>) => {
-      server.worldObjectManager.createLoot(server);
+    execute: async (
+      server: ZoneServer2016,
+      client: Client,
+      args: Array<string>
+    ) => {
+      await server.worldObjectManager.createLootThreaded(server);
       server.sendChatText(client, `Spawned loot`);
     }
   },
   {
     name: "respawnnpcs",
     permissionLevel: PermissionLevels.ADMIN,
-    execute: (server: ZoneServer2016, client: Client, args: Array<string>) => {
-      server.worldObjectManager.createNpcs(server);
+    execute: async (
+      server: ZoneServer2016,
+      client: Client,
+      args: Array<string>
+    ) => {
+      await server.worldObjectManager.createNpcsThreaded(server);
       server.sendChatText(client, `Respawned npcs`);
     }
   },
@@ -2731,6 +3082,54 @@ export const commands: Array<Command> = [
     keepCase: true,
     execute: (server: ZoneServer2016, client: Client, args: Array<string>) => {
       server.sendAlertToAll(args.join(" "), client.character.name);
+    }
+  },
+  {
+    name: "globalalert",
+    permissionLevel: PermissionLevels.ADMIN,
+    keepCase: true,
+    execute: (server: ZoneServer2016, client: Client, args: Array<string>) => {
+      if (!args.length) {
+        server.sendChatText(client, "[ERROR] Usage: /globalalert {message}");
+        return;
+      }
+      const message = args.join(" ");
+      server.sendGlobalBroadcastRequest(0, client.character.name, message);
+    }
+  },
+  {
+    name: "globalrewardtoall",
+    permissionLevel: PermissionLevels.ADMIN,
+    execute: (server: ZoneServer2016, client: Client, args: Array<string>) => {
+      if (!args.length) {
+        server.sendChatText(
+          client,
+          "[ERROR] Usage: /globalrewardtoall {CrateID} [CrateID ...]"
+        );
+        return;
+      }
+      const rewardIds: number[] = [];
+      const invalid: string[] = [];
+      for (const arg of args) {
+        const rewardId = Number(arg);
+        const validRewardItem = server.rewardManager.rewards.some(
+          (v) => v.itemId === rewardId
+        );
+        if (!validRewardItem) {
+          invalid.push(arg);
+          continue;
+        }
+        rewardIds.push(rewardId);
+      }
+      if (!rewardIds.length) {
+        server.sendChatText(
+          client,
+          `[ERROR]${invalid.length ? " Crate ID: " + invalid.join(", ") : ""} is not valid`
+        );
+        return;
+      }
+      const message = `${client.character.name} has just initiated a global crate drop`;
+      server.sendGlobalBroadcastRequest(1, "", message, rewardIds);
     }
   },
   {
@@ -2842,7 +3241,7 @@ export const commands: Array<Command> = [
       }
       server.sendChatText(
         client,
-        `Next save at ${new Date(server.worldDataManager.nextSaveTime)}`
+        `Next save at ${new Date(server.nextSaveTime)}`
       );
     }
   },
@@ -3298,10 +3697,9 @@ export const commands: Array<Command> = [
         }
       }
 
-      delete require.cache[require.resolve("../../data/lootspawns")];
-      const loottables = require("../../data/lootspawns").lootTables;
-      server.worldObjectManager.createLoot(server, loottables);
-      server.worldObjectManager.createContainerLoot(server);
+      await server.worldObjectManager.createLootThreaded(server);
+      await server.worldObjectManager.createContainerLootThreaded(server);
+      await new Promise<void>((r) => setImmediate(r));
       server.sendChatText(client, `Respawned loot`);
     }
   },
@@ -3406,6 +3804,22 @@ export const commands: Array<Command> = [
     }
   },
   {
+    name: "reloadconfig",
+    permissionLevel: PermissionLevels.ADMIN,
+    execute: async (
+      server: ZoneServer2016,
+      client: Client,
+      args: Array<string>
+    ) => {
+      const success = server.configManager.reload(server);
+      if (success) {
+        server.sendChatText(client, "Config reloaded successfully.");
+      } else {
+        server.sendChatText(client, "Failed to reload config.");
+      }
+    }
+  },
+  {
     name: "console",
     permissionLevel: PermissionLevels.DEFAULT,
     execute: async (
@@ -3501,6 +3915,7 @@ export const commands: Array<Command> = [
   {
     name: "dev",
     permissionLevel: PermissionLevels.DEV,
+    keepCase: true,
     execute: (server: ZoneServer2016, client: Client, args: Array<string>) => {
       const commandName = args[0];
       delete require.cache[require.resolve("./dev")];
@@ -3584,6 +3999,32 @@ export const commands: Array<Command> = [
       server.sendChatText(client, `Set weather ${args[0]} to ${args[1]}`);
       console.log(server.weatherManager.weather);
       server.weatherManager.sendUpdateToAll(server, client, false);
+    }
+  },
+  {
+    name: "npcs",
+    permissionLevel: PermissionLevels.ADMIN,
+    execute: (server: ZoneServer2016, client: Client, _args: Array<string>) => {
+      let zombies = 0;
+      let screamers = 0;
+      let gassers = 0;
+      let exploders = 0;
+      let bears = 0;
+      let wolves = 0;
+      let deer = 0;
+      for (const npc of Object.values(server._npcs)) {
+        if (npc instanceof ZombieScreamer) screamers++;
+        else if (npc instanceof Gasser) gassers++;
+        else if (npc instanceof Exploder) exploders++;
+        else if (npc instanceof ZombieWalker) zombies++;
+        else if (npc instanceof Bear) bears++;
+        else if (npc instanceof Wolf) wolves++;
+        else if (npc instanceof Deer) deer++;
+      }
+      server.sendChatText(
+        client,
+        `[NPCs] Zombies: ${zombies} | Screamers: ${screamers} | Gassers: ${gassers} | Exploders: ${exploders} | Bears: ${bears} | Wolves: ${wolves} | Deer: ${deer}`
+      );
     }
   }
 

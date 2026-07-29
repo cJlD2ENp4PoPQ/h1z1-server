@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -27,6 +27,21 @@ function getHeadActor(modelId: number): string {
       return `ZombieFemale_Head_0${Math.floor(Math.random() * 2) + 1}.adr`;
     case ModelIds.ZOMBIE_MALE_HEAD:
       return `ZombieMale_Head_0${Math.floor(Math.random() * 3) + 1}.adr`;
+    default:
+      return "";
+  }
+}
+
+function getEyeActor(modelId: number): string {
+  switch (modelId) {
+    case ModelIds.SURVIVOR_MALE_HEAD_01:
+      return "SurvivorMale_Eyes_01.adr";
+    case ModelIds.SURVIVAL_FEMALE_HEAD_01:
+      return "SurvivorFemale_Eyes_01.adr";
+    case ModelIds.ZOMBIE_FEMALE_HEAD:
+      return Math.random() < 0.5
+        ? "ZombieFemale_Eyes_01.adr"
+        : "ZombieFemale_EyeLeft_01.adr";
     default:
       return "";
   }
@@ -85,6 +100,9 @@ export abstract class BaseLightweightCharacter extends BaseEntity {
   /** Returns the modelId of the lightweight, zombies or players */
   headActor = getHeadActor(this.actorModelId);
 
+  /** Sets eyes for characters */
+  eyeActor = getEyeActor(this.actorModelId);
+
   /** Used for constructions */
   profileId: number = 0;
 
@@ -103,6 +121,12 @@ export abstract class BaseLightweightCharacter extends BaseEntity {
   movementVersion: number = 0;
 
   navAgent?: CrowdAgent;
+
+  /** Object the character's animation is attached to. Overridden by Npc to
+   * attach the animation to itself (used for zombie animations) */
+  get attachedObjectTargetId(): string {
+    return "0x0";
+  }
 
   constructor(
     characterId: string,
@@ -129,14 +153,18 @@ export abstract class BaseLightweightCharacter extends BaseEntity {
       rotation: this.state.rotation,
       modelId: this.actorModelId,
       scale: this.scale,
-      health: (this.health / this.maxHealth) * 100
+      health: this.pGetSimpleProxyHealth().healthPercentage
     };
   }
 
   pGetSimpleProxyHealth() {
+    // Don't show health bars for Stashes, this could be revisited if we ever want to protect stashes so people need to raid them before getting the loot
     return {
       characterId: this.characterId,
-      healthPercentage: (this.health / this.maxHealth) * 100
+      healthPercentage:
+        this.actorModelId == ModelIds.HAND_SHOVEL
+          ? 100
+          : (this.health / this.maxHealth) * 100
     };
   }
 
@@ -150,12 +178,7 @@ export abstract class BaseLightweightCharacter extends BaseEntity {
       actorModelId: this.temporaryActorModelId
         ? this.temporaryActorModelId
         : this.actorModelId,
-      // fix players / vehicles spawning in ground
-      position: new Float32Array(
-        Array.from(this.state.position).map((pos, idx) => {
-          return idx == 1 ? pos++ : pos;
-        })
-      ),
+      position: this.state.position,
       rotation: this.state.rotation,
       scale: this.scale,
       positionUpdateType: this.positionUpdateType,
@@ -168,7 +191,12 @@ export abstract class BaseLightweightCharacter extends BaseEntity {
       },
       movementVersion: this.movementVersion,
       headActor: this.headActor,
-      attachedObject: {}
+      eyeActor: this.eyeActor,
+      attachedObject: {
+        // This doesn't do anything. I thought it could've been related to animations - Jason
+        //targetObjectId: this.attachedObjectTargetId,
+        //animationName: "Idle"
+      }
     };
   }
 }

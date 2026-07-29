@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -48,7 +48,7 @@ test("decaymanager", { timeout: 10000 }, async (t) => {
     zone.decayManager.run(zone);
     assert.strictEqual(Object.keys(zone._constructionFoundations).length, 0);
   });
-  await t.test("test decay", () => {
+  await t.test("test decay", async () => {
     zone._constructionFoundations = {};
     const characterId = generate_random_guid();
     const transientId = zone.getTransientId(characterId);
@@ -69,9 +69,11 @@ test("decaymanager", { timeout: 10000 }, async (t) => {
     zone._constructionFoundations[characterId] = foundation;
 
     zone.decayManager.griefCheckSlotAmount = 0;
+    zone.decayManager.useDecayWorker = false;
     t.mock.timers.tick(originalDate);
     for (let i = 0; i < 10_000; i++) {
-      zone.decayManager.run(zone);
+      zone.decayManager.clearTimers();
+      await zone.decayManager.run(zone);
     }
     assert.strictEqual(Object.keys(zone._constructionFoundations).length, 0);
   });

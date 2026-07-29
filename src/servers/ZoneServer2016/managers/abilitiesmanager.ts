@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -40,7 +40,10 @@ import {
 import { DamageInfo, EntityDictionary } from "types/zoneserver";
 import { LoadoutItem } from "../classes/loadoutItem";
 import { Npc } from "../entities/npc";
-const vehicleAbilities = require("../../../../data/2016/dataSources/VehicleAbilities.json");
+import { PluginManager } from "./pluginmanager";
+const vehicleAbilities = PluginManager.loadServerData(
+  "2016/dataSources/VehicleAbilities.json"
+);
 
 export class AbilitiesManager {
   sendVehicleAbilities(
