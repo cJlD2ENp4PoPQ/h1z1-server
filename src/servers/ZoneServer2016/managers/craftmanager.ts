@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -21,6 +21,7 @@ import { BaseItem } from "../classes/baseItem";
 import { BaseLootableEntity } from "../entities/baselootableentity";
 import { ChallengeType } from "./challengemanager";
 import { ItemObject } from "../entities/itemobject";
+import { ClientUpdateProximateItems } from "types/zone2016packets";
 const debug = require("debug")("ZoneServer");
 
 interface CraftComponentDSEntry {
@@ -102,6 +103,27 @@ function getCraftComponentsDataSource(
 }
 
 /**
+ * Finds a recipe that produces the given itemDefinitionId by checking rewardId fields
+ * @param character The character whose recipes to search
+ * @param itemDefinitionId The item ID to find a recipe for
+ * @returns The first matching recipe and its recipe ID, or undefined if not found
+ */
+function findRecipeByRewardId(
+  character: Character2016,
+  itemDefinitionId: number
+): { recipeId: number; recipe: Recipe } | undefined {
+  for (const [recipeId, recipe] of Object.entries(character.recipes)) {
+    if (recipe && recipe.rewardId === itemDefinitionId) {
+      return {
+        recipeId: Number(recipeId),
+        recipe
+      };
+    }
+  }
+  return undefined;
+}
+
+/**
  * CraftManager handles the crafting of a recipe by a client.
  */
 export class CraftManager {
@@ -171,14 +193,22 @@ export class CraftManager {
       return true;
 
     const item: any = itemDS.item;
-    if (item?.stackCount - count <= 0) {
+    const remainder = item?.stackCount - count;
+    if (remainder <= 0) {
       return server.deleteEntity(item.ownerCharacterId, server._spawnedItems);
-    } else if (item?.stackCount) {
-      const e = server.getEntity(item.ownerCharacterId);
-      if (e && e instanceof ItemObject) {
-        e.item.stackCount -= count;
-        return true;
-      }
+    }
+
+    const entity = server.getEntity(item.ownerCharacterId);
+    if (entity instanceof ItemObject) {
+      entity.item.stackCount -= count;
+      const client = server.getClientByCharId(itemDS.character.characterId);
+      if (!client) return true;
+      server.sendData<ClientUpdateProximateItems>(
+        client,
+        "ClientUpdate.ProximateItems",
+        server.getProximityItems(client)
+      );
+      return true;
     }
 
     return false;
@@ -209,7 +239,7 @@ export class CraftManager {
    * @param client The client performing the craft.
    * @param recipe The recipe object.
    * @param recipeCount The number of times to repeat the recipe.
-   * @param recipeId The ID of the recipe being crafted.
+   * @param rewardItemId The item ID that will be produced by this recipe.
    * @param craftCount The total number of items to craft.
    * @returns A promise resolving to a boolean indicating if the craft queue generation was successful.
    */
@@ -218,29 +248,33 @@ export class CraftManager {
     client: Client,
     recipe: Recipe,
     recipeCount: number,
-    recipeId: number,
+    rewardItemId: number,
     craftCount: number
   ): Promise<boolean> {
     for (const component of recipe.components) {
       const remainingItems = component.requiredAmount * recipeCount;
       // if component isn't found at all
       if (!this.componentsDataSource[component.itemDefinitionId]) {
-        const componentRecipe =
-            client.character.recipes[component.itemDefinitionId],
-          componentBundleCount = componentRecipe?.bundleCount || 1;
-        if (!componentRecipe) {
+        const componentRecipeLookup = findRecipeByRewardId(
+          client.character,
+          component.itemDefinitionId
+        );
+        if (!componentRecipeLookup) {
           debug(
-            `[CraftManager] ${client.character.name} tried to craft an invalid recipe ${component.itemDefinitionId}!`
+            `[CraftManager] ${client.character.name} tried to craft an invalid recipe for item ${component.itemDefinitionId}!`
           );
           return false; // no valid recipe to craft component
         }
+        const componentRecipe = componentRecipeLookup.recipe;
+        const componentRecipeId = componentRecipeLookup.recipeId;
+        const componentBundleCount = componentRecipe?.bundleCount || 1;
 
         if (component.requiredAmount / componentBundleCount < 1) {
           if (
             !(await this.craftItem(
               server,
               client,
-              component.itemDefinitionId,
+              componentRecipeId,
               Math.ceil(
                 (component.requiredAmount / componentBundleCount) * recipeCount
               )
@@ -254,7 +288,7 @@ export class CraftManager {
               !(await this.craftItem(
                 server,
                 client,
-                component.itemDefinitionId,
+                componentRecipeId,
                 Math.ceil(component.requiredAmount / componentBundleCount)
               ))
             ) {
@@ -268,15 +302,19 @@ export class CraftManager {
         this.componentsDataSource[component.itemDefinitionId].stackCount <
         remainingItems
       ) {
-        const componentRecipe =
-            client.character.recipes[component.itemDefinitionId],
-          componentBundleCount = componentRecipe?.bundleCount || 1;
-        if (!componentRecipe) {
+        const componentRecipeLookup = findRecipeByRewardId(
+          client.character,
+          component.itemDefinitionId
+        );
+        if (!componentRecipeLookup) {
           debug(
-            `[CraftManager] ${client.character.name} tried to craft an invalid recipe ${component.itemDefinitionId}!`
+            `[CraftManager] ${client.character.name} tried to craft an invalid recipe for item ${component.itemDefinitionId}!`
           );
           return false; // no valid recipe to craft component
         }
+        const componentRecipe = componentRecipeLookup.recipe;
+        const componentRecipeId = componentRecipeLookup.recipeId;
+        const componentBundleCount = componentRecipe?.bundleCount || 1;
         let stackCount =
           this.componentsDataSource[component.itemDefinitionId].stackCount;
         if (component.requiredAmount / componentBundleCount < 1) {
@@ -298,12 +336,7 @@ export class CraftManager {
             craft += Math.ceil(craftAmount / componentBundleCount);
           }
           if (
-            !(await this.craftItem(
-              server,
-              client,
-              component.itemDefinitionId,
-              craft
-            ))
+            !(await this.craftItem(server, client, componentRecipeId, craft))
           ) {
             return false; // craftItem returned some error
           }
@@ -322,7 +355,7 @@ export class CraftManager {
               !(await this.craftItem(
                 server,
                 client,
-                component.itemDefinitionId,
+                componentRecipeId,
                 Math.ceil(craftAmount / componentBundleCount)
               ))
             ) {
@@ -342,12 +375,12 @@ export class CraftManager {
         return false;
       }
     }
-    // push dummy item
-    if (this.componentsDataSource[recipeId]) {
-      this.componentsDataSource[recipeId].stackCount += craftCount;
+    // push dummy item using the reward item ID (not the recipe ID)
+    if (this.componentsDataSource[rewardItemId]) {
+      this.componentsDataSource[rewardItemId].stackCount += craftCount;
     } else {
-      this.componentsDataSource[recipeId] = {
-        itemDefinitionId: recipeId,
+      this.componentsDataSource[rewardItemId] = {
+        itemDefinitionId: rewardItemId,
         stackCount: craftCount
       };
     }
@@ -413,10 +446,33 @@ export class CraftManager {
     if (this.craftLoopCount > this.maxCraftLoopCount) {
       return false;
     }
-    const recipe = client.character.recipes[recipeId],
-      bundleCount = recipe?.bundleCount || 1, // the amount of an item crafted from 1 recipe (ex. crafting 1 stick recipe gives you 2)
-      craftCount = recipeCount * bundleCount; // the actual amount of items to craft
+
+    const recipe = client.character.recipes[recipeId];
     if (!recipe) return false;
+
+    return await this.tryCraftWithRecipe(
+      server,
+      client,
+      recipe,
+      recipeId,
+      recipeCount
+    );
+  }
+
+  /**
+   * Attempts to craft using a specific recipe.
+   */
+  private async tryCraftWithRecipe(
+    server: ZoneServer2016,
+    client: Client,
+    recipe: Recipe,
+    recipeId: number,
+    recipeCount: number
+  ): Promise<boolean> {
+    const bundleCount = recipe.bundleCount || 1;
+    const craftCount = recipeCount * bundleCount;
+    const rewardItemId = recipe.rewardId;
+
     switch (recipe.filterId) {
       case FilterIds.COOKING:
       case FilterIds.FURNACE:
@@ -477,7 +533,7 @@ export class CraftManager {
         client,
         recipe,
         recipeCount,
-        recipeId,
+        rewardItemId,
         craftCount
       ))
     ) {
@@ -487,14 +543,13 @@ export class CraftManager {
     //#region CRAFTING
     await server.pUtilizeHudTimer(
       client,
-      server.getItemDefinition(recipeId)?.NAME_ID ?? 0,
+      server.getItemDefinition(rewardItemId)?.NAME_ID ?? 0,
       1000 * recipeCount,
       0
     );
-    const r = client.character.recipes[recipeId];
     const removedItems: RemovedItem[] = [];
     let craftSuccess = true;
-    for (const component of r.components) {
+    for (const component of recipe.components) {
       const inventory = this.getInventoryDataSource(client.character);
       const proximityItems = server.getCraftingProximityItems(client) as {
         items: any[];
@@ -582,14 +637,14 @@ export class CraftManager {
 
     client.character.lootItem(
       server,
-      server.generateItem(recipeId, craftCount, true)
+      server.generateItem(rewardItemId, craftCount, true)
     );
     if (recipe.leftOverItems) {
       recipe.leftOverItems.forEach((id: number) => {
         client.character.lootItem(server, server.generateItem(id, 1));
       });
     }
-    switch (recipeId) {
+    switch (rewardItemId) {
       case Items.IED:
         server.challengeManager.registerChallengeProgression(
           client,

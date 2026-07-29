@@ -5,7 +5,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -275,7 +275,9 @@ export enum ModelIds {
   TRAFFIC_SIGNS_TOWN = 9918,
   STREET_SIGNS_STREET_NAMES_SIGN_POST = 9950,
   STREET_SIGNS_STREET_NAMES_SIGN = 9943,
-  STREET_SIGN_POLE = 9944
+  STREET_SIGN_POLE = 9944,
+  WORKBENCH = 9406,
+  BEE_BOX = 9428
 }
 
 export enum StringIds {
@@ -349,6 +351,7 @@ export enum MovementModifiers {
   RESTED = 1.11,
   SWIZZLE = 1.1,
   SNARED = 0.5,
+  SCREAM = 0.49,
   CONVEYS = 1.15,
   BOOTS = 1.07,
   ADRENALINE = 1.12
@@ -413,7 +416,13 @@ export enum VehicleIds {
 }
 
 export enum NpcIds {
+  SURVIVOR = 0, // fake, just made for convinence
   ZOMBIE = 3,
+  GASSER = 4, // fake, not based on game data
+  EXPLODER = 5, // fake, not based on game data
+  PROTOTYPE_HUNTER_ZOMBIE = 100, // fake, not based on game data
+  PROTOTYPE_SNIPER_ZOMBIE = 101, // fake, not based on game data
+  PROTOTYPE_ASSAULT_ZOMBIE = 102, // fake, not based on game data
   DEER = 13,
   WOLF = 14,
   BEAR = 825,
@@ -756,6 +765,8 @@ export enum AccountItems {
   REWARD_CRATE_VICTORY = 5064,
   REWARD_CRATE_BREAKOUT = 5255,
   REWARD_CRATE_SWIRL = 5256,
+  REWARD_CRATE_INFERNAL_2025 = 5333,
+  REWARD_CRATE_FROST = 5375,
   MYSTERY_BAG_KOTK = 3239,
   KOTK_ELITE_BAG = 3240,
   SKIRMISH_SMALL_FIREARMS = 3274,
@@ -770,6 +781,26 @@ export enum AccountItems {
   MYSTERY_BAG_V2 = 2033
 }
 export enum Items {
+  // region test
+  HEAVY_ASSAULT_POLO_SHIRT = 3170,
+  HEAVY_ASSAULT_COMBAT_BOOTS = 3180,
+  HEAVY_ASSAULT_FULL_HELMET = 3181,
+  HEAVY_ASSAULT_BODY_ARMOR = 3182,
+  HEAVY_ASSAULT_PADDED_GLOVES = 3183,
+  HEAVY_ASSAULT_MILITARY_PANTS = 3185,
+  HEAVY_ASSAULT_BALACLAVA = 3403,
+
+  //hunting
+  HUNTING_POLO = 2288,
+  BROWN_CAMO_PANTS = 2065,
+  // sniper
+  SNIPER_BOOTS = 3173,
+  SNIPER_CAMO_PADDED_PANTS = 3178,
+  SNIPER_FINGERLESS_GLOVES = 3407,
+  SNIPER_LAMINATED_BODY_ARMOR = 3483,
+  SNIPER_TACTICAL_HELMET = 3487,
+  SNIPER_FARMER_JACKET = 3506,
+
   //#region WEAPONS
   WEAPON_AR15 = 10,
   WEAPON_AK47 = 2229,
@@ -1330,6 +1361,16 @@ export enum Items {
   DOOMED_PUFFY_JACKET = 3977,
   SILVER_METAL_FRAME_SUNGLASSES = 2255,
 
+  // Red Scrubs
+  RED_SCRUBS_SHIRT = 2548,
+  RED_SCRUBS_PANTS = 2549,
+  RED_SCRUBS_CAP = 2552,
+
+  // Green Scrubs
+  GREEN_SCRUBS_SHIRT = 2556,
+  GREEN_SCRUBS_PANTS = 2559,
+  GREEN_SCRUBS_CAP = 2562,
+
   QUEST_KURAMA_MEDICAL_SCRUBS_SHIRT = 2649,
   QUEST_KURAMA_MEDICAL_SCRUBS_CAP = 2650,
   QUEST_KURAMA_MEDICAL_SCRUBS_PANTS = 2657,
@@ -1450,6 +1491,7 @@ export enum WeaponDefinitionIds {
 
   WEAPON_AK47 = 1405,
   WEAPON_AR15 = 6,
+  WEAPON_AR15_2 = 10, // idk why it send me this id for an ar-15
   WEAPON_MAGNUM = 1388,
   WEAPON_R380 = 1400,
   WEAPON_M9 = 1401,
@@ -2592,4 +2634,18 @@ export enum GameModes {
   BATTLE_ROYALE_5 = 7,
   BATTLE_ROYALE_GREEN_DAWN = 10,
   BATTLE_ROYALE_REANIMATOR = 14
+}
+
+export enum UIElements {
+  MAP = 12,
+  INVENTORY = 15
+}
+
+export enum ReplicationPropertyHash {
+  UNKNOWN1 = 0x50d51c9d,
+  ISWORLDITEM = 0xf68bb709,
+  UNKNOWN2 = 0xb927f3ef,
+  ZOMBIE = 0xcc26bbdc // Enables RequestObject
+
+  //0x41A00000
 }

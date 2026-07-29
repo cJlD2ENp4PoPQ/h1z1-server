@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -1187,41 +1187,6 @@ export function packVehicleReferenceData(obj: any) {
   return data;
 }
 
-export function packInteractionComponent() {
-  const raw = [
-    0x17, 0x00, 0x43, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x49, 0x6e, 0x74, 0x65,
-    0x72, 0x61, 0x63, 0x74, 0x43, 0x6f, 0x6d, 0x70, 0x6f, 0x6e, 0x65, 0x6e,
-    0x74, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x6e, 0x2e,
-    0x00, 0x00, 0x9d, 0x1c, 0xd5, 0x50, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0xa0, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-  ];
-  return Buffer.from(raw);
-}
-
-export function packNpcComponent() {
-  /*const raw = [
-        0x12, 0x00, 0x43, 0x6C, 0x69, 0x65, 0x6E, 0x74, 0x4E, 0x70, 0x63, 0x43, 0x6F,
-        0x6D, 0x70, 0x6F, 0x6E, 0x65, 0x6E, 0x74, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
-        0x00, 0x7D, 0x00, 0x00, 0x00, 0x09, 0xB7, 0x8B, 0xF6, 0x00, 0x52, 0x00, 0x00, 0x00, 0x4E,
-        0x08, 0x00, 0x00, 0xCE, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE4, 0x22, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    ];*/
-
-  const raw = [
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-  ];
-  return Buffer.from(raw);
-}
-
 export const itemSchema: PacketFields = [
   { name: "itemDefinitionId", type: "uint32", defaultValue: 0 },
   { name: "tintId", type: "uint32", defaultValue: 0 },
@@ -1337,7 +1302,11 @@ export const lightWeightNpcSchema: PacketFields = [
   { name: "unknownDword2", type: "uint32", defaultValue: 0 },
   { name: "unknownDword3", type: "uint32", defaultValue: 0 },
   { name: "headActor", type: "string", defaultValue: "" },
-  { name: "unknownString3", type: "string", defaultValue: "" },
+  {
+    name: "eyeActor",
+    type: "string",
+    defaultValue: ""
+  },
   { name: "unknownString4", type: "string", defaultValue: "" },
   { name: "vehicleId", type: "uint32", defaultValue: 0 },
   { name: "projectileUniqueId", type: "uint32", defaultValue: 0 },
@@ -1406,26 +1375,9 @@ export const lightWeightNpcSchema: PacketFields = [
   },
   {
     name: "attachedObject",
-    type: "schema",
-    fields: [
-      {
-        name: "targetObjectId",
-        type: "uint64string",
-        defaultValue: "0x0"
-      }
-      /*{ name: "unknownFloatVector41", type: "floatvector4", defaultValue: [0, 0, 0, 1] },
-            { name: "unknownFloatVector42", type: "floatvector4", defaultValue: [0, 0, 0, 1] },
-            { name: "unknownDword1", type: "uint32", defaultValue: 0 },
-            {
-                name: "unknownData1",
-                type: "schema",
-                fields: [
-                    { name: "unknownWord1", type: "uint16", defaultValue: 0 },
-                    //{ name: "unknownDword1", type: "uint32", defaultValue: 0 }, // this value is read only if (unknownWord1 & 0x4000) == true
-                ]
-            },
-            { name: "unknownDword2", type: "uint32", defaultValue: 0 },*/
-    ],
+    type: "custom",
+    parser: parseAttachedObject,
+    packer: packAttachedObject,
     defaultValue: {}
   },
   { name: "unknownDword9", type: "uint32", defaultValue: 0 },
@@ -3045,6 +2997,66 @@ export function pack2ByteLengthString(string: string) {
       packer: pack2ByteLengthString
     },
   */
+}
+
+const attachedObjectIdSchema: PacketFields = [
+  { name: "targetObjectId", type: "uint64string", defaultValue: "0x0" }
+];
+
+const attachedObjectDataSchema: PacketFields = [
+  {
+    name: "unknownFloatVector41",
+    type: "floatvector4",
+    defaultValue: [0, 0, 0, 1]
+  },
+  {
+    name: "unknownFloatVector42",
+    type: "floatvector4",
+    defaultValue: [0, 0, 0, 1]
+  },
+  { name: "unknownDword1", type: "uint32", defaultValue: 0 },
+  {
+    name: "animationName",
+    type: "custom",
+    parser: pack2ByteLengthString,
+    packer: pack2ByteLengthString,
+    defaultValue: "Idle"
+  },
+  { name: "animationNameTerminator", type: "uint8", defaultValue: 0 },
+  { name: "unknownDword2", type: "uint32", defaultValue: 0 }
+];
+
+function hasAttachedObject(targetObjectId: string): boolean {
+  return BigInt(targetObjectId || "0x0") > 0n;
+}
+
+export function packAttachedObject(value: any) {
+  value = value || {};
+  const targetObjectId = value.targetObjectId || "0x0";
+  const idBuffer = DataSchema.pack(attachedObjectIdSchema, {
+    targetObjectId
+  }).data;
+  if (!hasAttachedObject(targetObjectId)) {
+    return idBuffer;
+  }
+  const dataBuffer = DataSchema.pack(attachedObjectDataSchema, value).data;
+  return Buffer.concat([idBuffer, dataBuffer]);
+}
+
+export function parseAttachedObject(data: Buffer, offset: number) {
+  const id = DataSchema.parse(attachedObjectIdSchema, data, offset);
+  const result: any = id.result;
+  let length = id.length;
+  if (hasAttachedObject(result.targetObjectId)) {
+    const rest = DataSchema.parse(
+      attachedObjectDataSchema,
+      data,
+      offset + length
+    );
+    Object.assign(result, rest.result);
+    length += rest.length;
+  }
+  return { value: result, length };
 }
 
 export const storeBundleSchema: PacketFields = [

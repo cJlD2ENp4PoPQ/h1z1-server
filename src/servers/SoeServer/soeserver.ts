@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -24,7 +24,18 @@ import dgram from "node:dgram";
 import { PacketsQueue } from "./PacketsQueue";
 const debug = require("debug")("SOEServer");
 
+const MAX_PACKETS_PER_IP_PER_SEC = 500;
+const MAX_SESSIONS_PER_IP_PER_MIN = 5;
+
+interface RateWindow {
+  count: number;
+  windowStart: number;
+  logged: boolean;
+}
+
 export class SOEServer extends EventEmitter {
+  _serverAddress: string;
+  _serverAddressV6: string;
   _serverPort: number;
   _cryptoKey: Uint8Array;
   _protocol!: Soeprotocol;
@@ -45,22 +56,28 @@ export class SOEServer extends EventEmitter {
   avgEventLoopLag: number = 0;
   eventLoopLagValues: number[] = [];
   currentEventLoopLag: number = 0;
+  private _ipRateMap: Map<string, RateWindow> = new Map();
+  private _sessionRequestMap: Map<string, RateWindow> = new Map();
   constructor(serverPort: number, cryptoKey: Uint8Array) {
     super();
     const oneMb = 1024 * 1024;
-    Buffer.poolSize = oneMb;
     this._serverPort = serverPort;
+    this._serverAddress = process.env.SERVER_BIND_ADDRESS || "0.0.0.0";
+    this._serverAddressV6 = process.env.SERVER_BIND_ADDRESS_V6 || "::";
     this._cryptoKey = cryptoKey;
     this._maxMultiBufferSize = this._udpLength - 4 - this._crcLength;
+    const isWindows = process.platform === "win32";
     this._connection = dgram.createSocket({
       type: "udp4",
       reuseAddr: true,
+      reusePort: !isWindows,
       recvBufferSize: oneMb * 2,
       sendBufferSize: oneMb
     });
     this._connectionv6 = dgram.createSocket({
       type: "udp6",
       reuseAddr: true,
+      reusePort: !isWindows,
       recvBufferSize: oneMb * 2,
       sendBufferSize: oneMb
     });
@@ -202,6 +219,7 @@ export class SOEServer extends EventEmitter {
 
     // clear out of order array
     client.outputStream.outOfOrder.clear();
+    client.stats.packetsOutOfOrder = 0;
 
     return resends;
   }
@@ -255,6 +273,10 @@ export class SOEServer extends EventEmitter {
 
   private _createClient(remote: RemoteInfo) {
     const client = new SOEClient(remote, this._crcSeed, this._cryptoKey);
+    // Start a persistent sending loop for this client
+    (client as any).sendingInterval = setInterval(() => {
+      this.sendingProcess(client);
+    }, this._waitTimeMs);
     client.inputStream.on("appdata", (data: Buffer) => {
       this.emit("appdata", client, data);
     });
@@ -266,19 +288,19 @@ export class SOEServer extends EventEmitter {
     });
 
     client.inputStream.on("error", (err: Error) => {
-      console.error(err);
+      debug(err);
       this.emit("disconnect", client);
     });
 
     client.outputStream.on(SOEOutputChannels.Reliable, () => {
       // some reliables are available, we send them
-      this._activateSendingTimer(client);
+      this.sendingProcess(client);
     });
 
     client.outputStream.on(
       SOEOutputChannels.Ordered,
       (data: Buffer, sequence: number) => {
-        console.log("ordered");
+        debug("ordered");
         this._sendAndBuildLogicalPacket(client, SoeOpcode.Ordered, {
           sequence: sequence,
           data: data
@@ -291,15 +313,6 @@ export class SOEServer extends EventEmitter {
     // });
     this._clients.set(client.soeClientId, client);
     return client;
-  }
-
-  // activate the sending timer if it's not already activated
-  private _activateSendingTimer(client: SOEClient, additonalTime: number = 0) {
-    if (!client.sendingTimer) {
-      client.sendingTimer = setTimeout(() => {
-        this.sendingProcess(client);
-      }, this._waitTimeMs + additonalTime);
-    }
   }
 
   // Handle the packet received from the client
@@ -399,13 +412,55 @@ export class SOEServer extends EventEmitter {
         client.outputStream.ack(packet.sequence, client.unAckData);
         break;
       default:
-        console.log(`Unknown SOE packet received from ${client.sessionId}`);
-        console.log(packet);
+        debug(`Unknown SOE packet received from ${client.sessionId}`);
+        debug(packet);
     }
+  }
+
+  private _checkIpRateLimit(ip: string): boolean {
+    const now = Date.now();
+    let entry = this._ipRateMap.get(ip);
+    if (!entry || now - entry.windowStart > 1000) {
+      entry = { count: 0, windowStart: now, logged: false };
+      this._ipRateMap.set(ip, entry);
+    }
+    entry.count++;
+    if (entry.count > MAX_PACKETS_PER_IP_PER_SEC) {
+      if (!entry.logged) {
+        console.log(
+          `[DDoS] IP ${ip} rate-limited: ${entry.count} packets in 1s window (dropped)`
+        );
+        entry.logged = true;
+      }
+      return false;
+    }
+    return true;
+  }
+
+  private _checkSessionRateLimit(ip: string): boolean {
+    const now = Date.now();
+    let entry = this._sessionRequestMap.get(ip);
+    if (!entry || now - entry.windowStart > 60000) {
+      entry = { count: 0, windowStart: now, logged: false };
+      this._sessionRequestMap.set(ip, entry);
+    }
+    entry.count++;
+    if (entry.count > MAX_SESSIONS_PER_IP_PER_MIN) {
+      if (!entry.logged) {
+        console.log(
+          `[DDoS] IP ${ip} session-spam: ${entry.count} session requests in 60s (dropped)`
+        );
+        entry.logged = true;
+      }
+      return false;
+    }
+    return true;
   }
 
   onMessage(data: Buffer, remote: RemoteInfo) {
     try {
+      if (!this._checkIpRateLimit(remote.address)) return;
+
       let client: SOEClient;
       const clientId = SOEClient.getClientId(remote);
       debug(data.length + " bytes from ", clientId);
@@ -415,6 +470,7 @@ export class SOEServer extends EventEmitter {
         if (data[1] !== 1) {
           return;
         }
+        if (!this._checkSessionRateLimit(remote.address)) return;
         client = this._createClient(remote);
       } else {
         client = this._clients.get(clientId) as SOEClient;
@@ -424,8 +480,8 @@ export class SOEServer extends EventEmitter {
         if (raw_parsed_data) {
           const parsed_data = JSON.parse(raw_parsed_data);
           if (parsed_data.name === "Error") {
-            console.error("parsing error " + parsed_data.error);
-            console.error(parsed_data);
+            debug("parsing error " + parsed_data.error);
+            debug(parsed_data);
           } else {
             if (client.lastKeepAliveTimer) {
               client.lastKeepAliveTimer.refresh();
@@ -433,14 +489,14 @@ export class SOEServer extends EventEmitter {
             this.handlePacket(client, parsed_data);
           }
         } else {
-          console.error("Unmanaged packet from client", clientId, data);
+          debug("Unmanaged packet from client", clientId, data);
         }
       } else {
         if (this._allowRawDataReception) {
-          console.log("Raw data received from client", clientId, data);
+          debug("Raw data received from client", clientId, data);
           this.emit("appdata", client, data, true); // Unreliable + Unordered
         } else {
-          console.log(
+          debug(
             "Raw data received from client but raw data reception isn't enabled",
             clientId,
             data
@@ -461,15 +517,25 @@ export class SOEServer extends EventEmitter {
     if (udpLength !== undefined) {
       this._udpLength = udpLength;
     }
+    setInterval(() => {
+      const now = Date.now();
+      for (const [ip, entry] of this._ipRateMap) {
+        if (now - entry.windowStart > 2000) this._ipRateMap.delete(ip);
+      }
+      for (const [ip, entry] of this._sessionRequestMap) {
+        if (now - entry.windowStart > 62000) this._sessionRequestMap.delete(ip);
+      }
+    }, 60000);
+
     this._connection.on("message", (data, remote) => {
       this.onMessage(data, remote);
     });
     this._connectionv6.on("message", (data, remote) => {
       this.onMessage(data, remote);
     });
-    this._connection.bind(this._serverPort);
+    this._connection.bind(this._serverPort, this._serverAddress);
     if (!process.env.DISABLE_IPV6) {
-      this._connectionv6.bind(this._serverPort);
+      this._connectionv6.bind(this._serverPort, this._serverAddressV6);
     }
   }
 
@@ -544,12 +610,6 @@ export class SOEServer extends EventEmitter {
     }
     return Buffer.from(logicalData);
   }
-  private _clearSendingTimer(client: Client) {
-    if (client.sendingTimer) {
-      clearTimeout(client.sendingTimer);
-      client.sendingTimer = null;
-    }
-  }
 
   // Get an array of logical app packets that can be sent
   private getAvailableAppPackets(client: Client): LogicalPacket[] {
@@ -567,8 +627,6 @@ export class SOEServer extends EventEmitter {
     return appPackets;
   }
   private sendingProcess(client: Client) {
-    // If there is a pending sending timer then we clear it
-    this._clearSendingTimer(client);
     if (client.isDeleted) {
       return;
     }
@@ -593,6 +651,7 @@ export class SOEServer extends EventEmitter {
         }
       }
       client.unAckData.delete(resend.sequence as number);
+      if (client.stats.packetResend > 0) client.stats.packetResend--;
     }
     if (client.outputStream.isReliableAvailable()) {
       const appPackets = this.getAvailableAppPackets(client);
@@ -654,10 +713,6 @@ export class SOEServer extends EventEmitter {
     if (waitingQueuePacket) {
       this._sendAndBuildPhysicalPacket(client, waitingQueuePacket);
     }
-
-    if (client.unAckData.size > 0) {
-      this._activateSendingTimer(client);
-    }
   }
   // Build the logical packet via the soeprotocol
   private createLogicalPacket(
@@ -671,7 +726,7 @@ export class SOEServer extends EventEmitter {
       );
       return logicalPacket;
     } catch (e) {
-      console.error(
+      debug(
         `Failed to create packet ${packetOpcode} packet data : ${JSON.stringify(
           packet,
           null,
@@ -701,7 +756,19 @@ export class SOEServer extends EventEmitter {
     client.stats.totalLogicalPacketSent++;
     if (this._canBeBufferedIntoQueue(logicalPacket, client.waitingQueue)) {
       client.waitingQueue.addPacket(logicalPacket);
-      this._activateSendingTimer(client);
+      // If the queue is not empty and adding this packet fills it up or nearly fills it, flush immediately
+      if (
+        client.waitingQueue.packets.length > 1 &&
+        client.waitingQueue.CurrentByteLength >= this._maxMultiBufferSize * 0.9
+      ) {
+        const waitingQueuePacket = this.getClientWaitQueuePacket(
+          client,
+          client.waitingQueue
+        );
+        if (waitingQueuePacket) {
+          this._sendAndBuildPhysicalPacket(client, waitingQueuePacket);
+        }
+      }
     } else {
       client.delayedLogicalPackets.push(logicalPacket);
       this.sendingProcess(client);
@@ -739,8 +806,10 @@ export class SOEServer extends EventEmitter {
 
   deleteClient(client: SOEClient): void {
     client.isDeleted = true;
-    client.closeTimers();
-    this._clearSendingTimer(client);
+    if ((client as any).sendingInterval) {
+      clearInterval((client as any).sendingInterval);
+      (client as any).sendingInterval = null;
+    }
     this._clients.delete(client.soeClientId);
     debug("client connection from port : ", client.port, " deleted");
   }

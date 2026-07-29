@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -12,17 +12,21 @@
 // ======================================================================
 
 import test, { after } from "node:test";
-import { containerLootSpawners } from "../data/lootspawns";
 import assert from "node:assert";
+import { LootTableManager } from "./loottablemanager";
 
 test("WorldObjectManager", { timeout: 10000 }, async (t) => {
   await t.test("containerLootSpawners", () => {
-    for (const key in containerLootSpawners) {
-      const containerLootTable = containerLootSpawners[key];
-      if (containerLootTable.maxItems) {
+    const manager = new LootTableManager();
+    manager.load();
+    const containerTables = manager.getContainerTables();
+    for (const key in containerTables) {
+      const containerLootTable = containerTables[key];
+      for (const pool of containerLootTable.pools) {
+        if (!pool.rolls) continue;
         assert(
-          containerLootTable.maxItems <= containerLootTable.items.length,
-          `${key} MaxItems is > items.length`
+          pool.rolls.max <= pool.entries.length,
+          `${key} pool rolls.max (${pool.rolls.max}) exceeds entry count (${pool.entries.length})`
         );
       }
     }

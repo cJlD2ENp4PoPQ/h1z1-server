@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -327,7 +327,38 @@ export const characterPackets: PacketStructures = [
       ]
     }
   ],
-  ["Character.EffectPackage", 0x0f11, {}],
+  [
+    "Character.EffectPackage",
+    0x0f11,
+    {
+      fields: [
+        {
+          name: "unknownQword1",
+          type: "uint64string",
+          defaultValue: "0"
+        },
+        {
+          name: "unknownQword2",
+          type: "uint64string",
+          defaultValue: "0"
+        },
+        { name: "unknownBoolean1", type: "boolean", defaultValue: false },
+        {
+          name: "unknownData1", // sub_14036E230
+          type: "schema",
+          defaultValue: {},
+          fields: [
+            { name: "unknownDword1", type: "uint32", defaultValue: 0 },
+            { name: "unknownDword2", type: "uint32", defaultValue: 0 },
+            { name: "unknownBoolean1", type: "boolean", defaultValue: false },
+            { name: "unknownDword3", type: "uint32", defaultValue: 0 },
+            { name: "unknownDword4", type: "uint32", defaultValue: 0 },
+            { name: "unknownDword5", type: "uint32", defaultValue: 0 }
+          ]
+        }
+      ]
+    }
+  ],
   [
     "Character.PreferredLanguages",
     0x0f12,
@@ -419,7 +450,32 @@ export const characterPackets: PacketStructures = [
       ]
     }
   ],
-  ["Character.SetSpawnAnimation", 0x0f17, {}],
+  [
+    "Character.SetSpawnAnimation",
+    0x0f17,
+    {
+      fields: [
+        {
+          name: "characterId",
+          type: "uint64string"
+        },
+        {
+          name: "unknownQword2",
+          type: "uint64string",
+          defaultValue: "x0000000000000009"
+        },
+        { name: "unknownBool1", type: "boolean", defaultValue: true },
+
+        // SubSpawnAnim (field27_0x2c) — FUN_14036e230
+        { name: "unknownFloat1", type: "float", defaultValue: 5.0 },
+        { name: "unknownDword2", type: "int32", defaultValue: 0 } // count/flag
+        // { name: "unknownBool2", type: "boolean", defaultValue: false } // conditional on unknownDword2 > 0
+        // { name: "unknownFloat2", type: "float", defaultValue: 0 },
+        // { name: "unknownDword3", type: "int32", defaultValue: 0 },
+        // { name: "unknownFloat3", type: "float", defaultValue: 0 }
+      ]
+    }
+  ],
   [
     "Character.CustomizeNpc",
     0x0f18,

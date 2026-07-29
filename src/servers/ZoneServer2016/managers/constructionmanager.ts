@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -11,21 +11,19 @@
 //   Based on https://github.com/psemu/soe-network
 // ======================================================================
 
-const Z1_vehicles = require("../../../../data/2016/zoneData/Z1_vehicleLocations.json"),
-  spawnLocations2 = require("../../../../data/2016/zoneData/Z1_gridSpawns.json");
-
 import {
   ConstructionEntity,
   dailyRepairMaterial,
   DamageInfo,
   ShelterSlotsPlacementTimer
 } from "types/zoneserver";
+import { scheduler } from "node:timers/promises";
+const apm = require("elastic-apm-node");
 import {
   eul2quat,
   fixEulerOrder,
   getConstructionSlotId,
   getDistance,
-  isPosInPoi,
   isPosInRadius,
   isPosInRadiusWithY,
   movePoint
@@ -64,6 +62,14 @@ import {
   ConstructionUnknown,
   PlayerUpdatePosition
 } from "types/zone2016packets";
+import { PluginManager } from "./pluginmanager";
+
+const Z1_vehicles = PluginManager.loadServerData(
+    "2016/zoneData/Z1_vehicleLocations.json"
+  ),
+  spawnLocations2 = PluginManager.loadServerData(
+    "2016/zoneData/Z1_gridSpawns.json"
+  );
 
 export class ConstructionManager {
   overridePlacementItems: Array<number> = [
@@ -88,6 +94,7 @@ export class ConstructionManager {
   vehicleSpawnPointBlockedPlacementRange!: number;
   playerFoundationBlockedPlacementRange!: number;
   playerShackBlockedPlacementRange!: number;
+  lowerStrongholdDefenses!: boolean;
 
   sendConstructionData(server: ZoneServer2016, client: Client) {
     const unknownArray1 = [46, 45, 47, 48, 49, 50, 12, 7, 15],
@@ -375,6 +382,7 @@ export class ConstructionManager {
     return false;
   }
   detectPOIPlacement(
+    server: ZoneServer2016,
     itemDefinitionId: number,
     position: Float32Array,
     client: Client,
@@ -383,7 +391,7 @@ export class ConstructionManager {
     if (client.isDebugMode) return false;
     if (this.overridePlacementItems.includes(itemDefinitionId)) return false;
 
-    const isInPoi = isPosInPoi(position);
+    const isInPoi = server.isPosInPoi(position);
     // allow placement in poi if object is parented to a foundation
     if (isInPoi && !isInsidePermissionedFoundation) {
       return true;
@@ -442,6 +450,7 @@ export class ConstructionManager {
     if (
       server.isNoBuildInPois &&
       this.detectPOIPlacement(
+        server,
         itemDefinitionId,
         position,
         client,
@@ -466,8 +475,6 @@ export class ConstructionManager {
     // for construction entities that don't have a parentObjectCharacterId from the client
     let freeplaceParentCharacterId = "";
     // TODO: SEARCH FOUNDATIONS IN GRID RANGE INSTEAD OF ALL OF THEM
-    // TODO: CHECK DECKS BEFORE TAMPERS SO OBJECTS PLACED ON A DECK DON'T GET INCORRECTLY
-    // PARENTED TO THE TAMPER A DECK IS ON
     for (const a in server._constructionFoundations) {
       const foundation = server._constructionFoundations[a];
       // check if inside a shelter even if not inside foundation (large shelters can extend it)
@@ -499,7 +506,21 @@ export class ConstructionManager {
         });
       }
 
-      // check deck last in case it's parented to a shelter or upper first
+      // check expansion decks before the foundation/tamper itself
+      if (!Number(freeplaceParentCharacterId)) {
+        Object.values(foundation.occupiedExpansionSlots).forEach(
+          (expansion) => {
+            if (
+              !Number(freeplaceParentCharacterId) &&
+              expansion.isInside(position)
+            ) {
+              freeplaceParentCharacterId = expansion.characterId;
+            }
+          }
+        );
+      }
+
+      // check foundation last so expansion decks/shelters take priority
       if (
         !Number(freeplaceParentCharacterId) &&
         foundation.isInside(position)
@@ -590,21 +611,31 @@ export class ConstructionManager {
       return;
     }
 
+    const tx = apm.currentTransaction;
+
     // invalid placement checks that don't require a parentCharacterId
-    if (
-      this.detectStackedPlacement(
-        server,
-        parentObjectCharacterId,
-        position,
-        itemDefinitionId
-      )
-    ) {
+    let span = tx?.startSpan("detectStackedPlacement");
+    const isStacked = this.detectStackedPlacement(
+      server,
+      parentObjectCharacterId,
+      position,
+      itemDefinitionId
+    );
+    span?.end();
+    if (isStacked) {
       this.sendPlacementFinalize(server, client, false);
       this.placementError(server, client, ConstructionErrors.STACKED);
       return;
     }
 
-    if (this.detectStackedTamperPlacement(server, item, position)) {
+    span = tx?.startSpan("detectStackedTamperPlacement");
+    const isTamperStacked = this.detectStackedTamperPlacement(
+      server,
+      item,
+      position
+    );
+    span?.end();
+    if (isTamperStacked) {
       this.sendPlacementFinalize(server, client, false);
       this.placementError(
         server,
@@ -632,16 +663,19 @@ export class ConstructionManager {
     }
 
     // for construction entities that don't have a parentObjectCharacterId from the client
+    span = tx?.startSpan("getFreeplaceParentCharacterId");
     const freeplaceParentCharacterId = this.getFreeplaceParentCharacterId(
-        server,
-        position
-      ),
-      isOnPermissionedFoundation = this.getIsOnPermissionedFoundation(
-        server,
-        client,
-        parentObjectCharacterId,
-        freeplaceParentCharacterId
-      );
+      server,
+      position
+    );
+    span?.end();
+
+    const isOnPermissionedFoundation = this.getIsOnPermissionedFoundation(
+      server,
+      client,
+      parentObjectCharacterId,
+      freeplaceParentCharacterId
+    );
 
     if (
       (!!Number(parentObjectCharacterId) ||
@@ -655,6 +689,8 @@ export class ConstructionManager {
       return;
     }
 
+    span = tx?.startSpan("handleClosePlacement-loop");
+    let closePlacementBlocked = false;
     for (const a in server._constructionFoundations) {
       const foundation = server._constructionFoundations[a];
 
@@ -668,11 +704,15 @@ export class ConstructionManager {
           isOnPermissionedFoundation
         )
       ) {
-        return;
+        closePlacementBlocked = true;
+        break;
       }
     }
+    span?.end();
+    if (closePlacementBlocked) return;
 
-    if (
+    span = tx?.startSpan("handleInvalidPlacement");
+    const isInvalid =
       ![Items.TRAP_FIRE, Items.TRAP_FLASH, Items.WOODEN_BARRICADE].includes(
         itemDefinitionId
       ) &&
@@ -682,25 +722,25 @@ export class ConstructionManager {
         itemDefinitionId,
         position,
         isOnPermissionedFoundation
-      )
-    ) {
-      return;
-    }
+      );
+    span?.end();
+    if (isInvalid) return;
 
-    if (
-      !this.handleConstructionPlacement(
-        server,
-        client,
-        itemDefinitionId,
-        modelId,
-        position,
-        rotation,
-        scale,
-        parentObjectCharacterId,
-        BuildingSlot,
-        freeplaceParentCharacterId
-      )
-    ) {
+    span = tx?.startSpan("handleConstructionPlacement");
+    const placed = this.handleConstructionPlacement(
+      server,
+      client,
+      itemDefinitionId,
+      modelId,
+      position,
+      rotation,
+      scale,
+      parentObjectCharacterId,
+      BuildingSlot,
+      freeplaceParentCharacterId
+    );
+    span?.end();
+    if (!placed) {
       this.sendPlacementFinalize(server, client, false);
       return;
     }
@@ -1306,6 +1346,7 @@ export class ConstructionManager {
     const position = parent.getSlotPosition(BuildingSlot, parent.wallSlots),
       rotation = parent.getSlotRotation(BuildingSlot, parent.wallSlots);
     if (
+      server.constructionManager.lowerStrongholdDefenses &&
       position &&
       (itemDefinitionId == Items.METAL_GATE ||
         itemDefinitionId == Items.METAL_WALL ||
@@ -1875,12 +1916,16 @@ export class ConstructionManager {
             true
           );
           return true;
-        } else if (!client.isAdmin || !client.isDebugMode) {
+        } else if (
+          !server.disableBaseCheck &&
+          (!client.isAdmin || !client.isDebugMode)
+        ) {
           this.tpPlayerOutsideFoundation(server, client, foundation);
         }
       }
     }
     if (allowed) return false;
+    if (server.disableBaseCheck) return false;
     const bufferZone = 0.15;
     const position = client.character.state.position;
     const positions: Float32Array[] = [];
@@ -1980,7 +2025,10 @@ export class ConstructionManager {
           true
         );
         return true;
-      } else if (!client.isAdmin || !client.isDebugMode) {
+      } else if (
+        !server.disableBaseCheck &&
+        (!client.isAdmin || !client.isDebugMode)
+      ) {
         const damageInfo: DamageInfo = {
           entity: "Server.Permissions",
           damage: 99999
@@ -2078,7 +2126,7 @@ export class ConstructionManager {
           const hasPermission = isSameGroup && hasVisitPermission;
 
           if (
-            iteratedClient.spawnedEntities.has(client.character) &&
+            iteratedClient.spawnedEntities.has(freePlacedEntity) &&
             iteratedClient.character.isHidden != freePlacedEntity.isHidden &&
             !hasPermission
           ) {
@@ -2086,10 +2134,10 @@ export class ConstructionManager {
               iteratedClient,
               "Character.RemovePlayer",
               {
-                characterId: client.character.characterId
+                characterId: freePlacedEntity.characterId
               }
             );
-            iteratedClient.spawnedEntities.delete(client.character);
+            iteratedClient.spawnedEntities.delete(freePlacedEntity);
           }
         }
       } else return;
@@ -2161,6 +2209,7 @@ export class ConstructionManager {
     }, 500);
     setTimeout(() => {
       if (
+        !server.disableBaseCheck &&
         foundation.isSecured &&
         foundation.isInside(client.character.state.position)
       ) {
@@ -2215,8 +2264,13 @@ export class ConstructionManager {
     }
   }
 
-  plantManager(server: ZoneServer2016) {
+  private _plantManagerRunning = false;
+  async plantManager(server: ZoneServer2016) {
+    if (this._plantManagerRunning) return;
+    this._plantManagerRunning = true;
     const date = new Date().getTime();
+    let i = 0;
+    let seedCount = 0;
     for (const characterId in server._temporaryObjects) {
       const object = server._temporaryObjects[characterId] as PlantingDiameter;
       if (object instanceof PlantingDiameter) {
@@ -2228,11 +2282,14 @@ export class ConstructionManager {
         } else if (object.disappearTimestamp < date)
           object.disappearTimestamp = date + 86400000;
         if (object.fertilizedTimestamp < date) object.isFertilized = false;
-        Object.values(object.seedSlots).forEach((plant) => {
+        for (const plant of Object.values(object.seedSlots)) {
           if (plant.nextStateTime < date) plant.grow(server);
-        });
+          if (++seedCount % 20 === 0) await scheduler.yield();
+        }
       }
+      if (++i % 50 === 0) await scheduler.yield();
     }
+    this._plantManagerRunning = false;
   }
 
   shouldHideEntity(
@@ -2292,15 +2349,7 @@ export class ConstructionManager {
     parentEntity: ConstructionParentEntity | ConstructionChildEntity
   ) {
     for (const entity of Object.values(parentEntity.freeplaceEntities)) {
-      if (
-        !isPosInRadius(
-          entity.npcRenderDistance || server.charactersRenderDistance,
-          entity.state.position,
-          client.character.state.position
-        ) ||
-        this.shouldHideEntity(server, client, entity)
-      )
-        continue;
+      if (this.shouldHideEntity(server, client, entity)) continue;
       if (entity instanceof ConstructionChildEntity) {
         this.spawnSimpleConstruction(server, client, entity);
       } else if (entity instanceof ConstructionDoor) {
@@ -2332,7 +2381,7 @@ export class ConstructionManager {
     client: Client,
     entity: ConstructionDoor
   ) {
-    if (client.spawnedEntities.has(entity) || !client.isSynced) return;
+    if (client.spawnedEntities.has(entity)) return;
     server.addLightweightNpc(
       client,
       entity,
@@ -2395,20 +2444,10 @@ export class ConstructionManager {
   ) {
     for (const slotMap of parentEntity.getOccupiedSlotMaps()) {
       for (const entity of Object.values(slotMap)) {
-        if (
-          isPosInRadius(
-            entity.npcRenderDistance
-              ? entity.npcRenderDistance
-              : server.charactersRenderDistance,
-            client.character.state.position,
-            entity.state.position
-          )
-        ) {
-          if (entity instanceof ConstructionChildEntity) {
-            this.spawnSimpleConstruction(server, client, entity);
-          } else if (entity instanceof ConstructionDoor) {
-            this.spawnConstructionDoor(server, client, entity);
-          }
+        if (entity instanceof ConstructionChildEntity) {
+          this.spawnSimpleConstruction(server, client, entity);
+        } else if (entity instanceof ConstructionDoor) {
+          this.spawnConstructionDoor(server, client, entity);
         }
       }
     }
@@ -2419,9 +2458,11 @@ export class ConstructionManager {
     client: Client
   ) {
     let hide = false;
-
-    for (const object of client.spawnedEntities) {
+    client.character.insideBuilding = "";
+    for (const object of client.spawnedConstructionEntities) {
       if (object instanceof ConstructionParentEntity) {
+        if (object.isInside(client.character.state.position))
+          client.character.insideBuilding = object.characterId;
         if (this.checkFoundationPermission(server, client, object)) {
           hide = true;
           continue;
@@ -2429,6 +2470,8 @@ export class ConstructionManager {
       }
 
       if (object instanceof ConstructionChildEntity) {
+        if (object.isInside(client.character.state.position))
+          client.character.insideBuilding = object.characterId;
         if (
           this.checkConstructionChildEntityPermission(server, client, object)
         ) {
@@ -2634,7 +2677,8 @@ export class ConstructionManager {
     }
 
     entity.damage(server, {
-      entity: "Server.DemoHammer",
+      entity: client.character.characterId,
+      weapon: weaponItem.itemDefinitionId,
       damage: entity.maxHealth / 3 + 10
     });
     server.damageItem(client.character, weaponItem, 50);
@@ -2883,9 +2927,11 @@ export class ConstructionManager {
     constructionObject: ConstructionEntity,
     damage: number,
     position: Float32Array,
-    entityPosition: Float32Array,
-    itemDefinitionId: number
+    entity: BaseEntity
   ) {
+    const itemDefinitionId =
+        entity instanceof ExplosiveEntity ? entity.itemDefinitionId : 0,
+      entityPosition = entity.state.position;
     switch (itemDefinitionId) {
       case Items.IED:
       case Items.LANDMINE:
@@ -2904,11 +2950,12 @@ export class ConstructionManager {
     const distance = getDistance(entityPosition, position);
 
     constructionObject.damage(server, {
-      entity: "",
+      entity: entity.characterId,
       damage:
         distance < constructionObject.damageRange
           ? damage
-          : damage / Math.sqrt(distance)
+          : damage / Math.sqrt(distance),
+      explosive: true
     });
   }
 

@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -28,6 +28,18 @@ export class HookManager {
   private enableHooks;
   constructor(enableHooks = true) {
     this.enableHooks = enableHooks;
+  }
+
+  /**
+   * Allows you to drop all currently registered hooks. Useful for plugin reloads.
+   */
+  drop() {
+    for (const key in this._hooks) {
+      delete this._hooks[key];
+    }
+    for (const key in this._asyncHooks) {
+      delete this._asyncHooks[key];
+    }
   }
 
   /**

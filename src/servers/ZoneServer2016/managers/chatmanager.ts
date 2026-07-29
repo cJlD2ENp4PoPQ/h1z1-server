@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -17,7 +17,10 @@ import { ZoneClient2016 as Client } from "../classes/zoneclient";
 import { ZoneServer2016 } from "../zoneserver";
 import { getDateString } from "../../../utils/utils";
 import { ChatChatText } from "types/zone2016packets";
-const blacklist = require("../../../..//data/2016/sampleData/blacklisted_words.json");
+import { PluginManager } from "./pluginmanager";
+const blacklist = PluginManager.loadServerData(
+  "2016/sampleData/blacklisted_words.json"
+);
 
 export class ChatManager {
   sendChatText(

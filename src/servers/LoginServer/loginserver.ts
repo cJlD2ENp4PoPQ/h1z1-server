@@ -3,7 +3,7 @@
 //   GNU GENERAL PUBLIC LICENSE
 //   Version 3, 29 June 2007
 //   copyright (C) 2020 - 2021 Quentin Gruber
-//   copyright (C) 2021 - 2025 H1emu community
+//   copyright (C) 2021 - 2026 H1emu community
 //
 //   https://github.com/QuentinGruber/h1z1-server
 //   https://www.npmjs.com/package/h1z1-server
@@ -65,12 +65,19 @@ import {
 import DataSchema from "h1z1-dataschema";
 import { applicationDataKOTK } from "../../packets/LoginUdp/LoginUdp_11/loginpackets";
 import { Resolver } from "node:dns";
+import { PluginManager } from "../../servers/ZoneServer2016/managers/pluginmanager";
 
 const debugName = "LoginServer";
 const debug = require("debug")(debugName);
-const characterItemDefinitionsDummy = require("../../../data/2015/sampleData/characterItemDefinitionsDummy.json");
-const defaultHashes: Array<FileHash> = require("../../../data/2016/dataSources/AllowedFileHashes.json");
-const loginReply2016 = require("../../../data/2016/dataSources/LoginData.json");
+const characterItemDefinitionsDummy = PluginManager.loadServerData(
+  "2015/sampleData/characterItemDefinitionsDummy.json"
+);
+const defaultHashes: Array<FileHash> = PluginManager.loadServerData(
+  "2016/dataSources/AllowedFileHashes.json"
+);
+const loginReply2016 = PluginManager.loadServerData(
+  "2016/dataSources/LoginData.json"
+);
 
 export enum LoginStatus {
   REJECTED = 0,
@@ -103,6 +110,7 @@ export class LoginServer extends EventEmitter {
   _db!: Db;
   _crcLength: crc_length_options;
   _udpLength: number;
+  pluginManager: PluginManager;
   private readonly _cryptoKey: Uint8Array;
   private readonly _mongoAddress: string;
   private readonly _soloMode: boolean;
@@ -112,6 +120,12 @@ export class LoginServer extends EventEmitter {
   _httpServerPort: number = Number(process.env.HTTP_PORT ?? 80);
   private _zoneConnectionManager!: ZoneConnectionManager;
   private _zoneConnections: { [LZConnectionClientId: string]: number } = {};
+  private _globalBroadcastAllowedZones: Set<number> = new Set(
+    (process.env.GLOBAL_BROADCAST_SERVER_IDS || "")
+      .split(",")
+      .map(Number)
+      .filter((id) => id > 0)
+  );
   private _internalReqCount: number = 0;
   private _pendingInternalReq: { [requestId: number]: any } = {};
   private _pendingInternalReqTimeouts: { [requestId: number]: NodeJS.Timeout } =
@@ -137,7 +151,7 @@ export class LoginServer extends EventEmitter {
     this._loginQueuesTimer = setInterval(() => {
       this.updateLoginQueues();
     }, this._loginRate / 2);
-
+    this.pluginManager = new PluginManager();
     // reminders
     if (!this._mongoAddress) {
       this._soloMode = true;
@@ -304,6 +318,37 @@ export class LoginServer extends EventEmitter {
                   });
                   break;
                 }
+                case "GlobalBroadcastRequest": {
+                  const originServerId = this._zoneConnections[client.clientId];
+                  if (
+                    !originServerId ||
+                    !this._globalBroadcastAllowedZones.has(originServerId)
+                  )
+                    return;
+                  const { broadcastType, initiatorName, message, rewardIds } =
+                    packet.data;
+                  for (const zoneClientId in this._zoneConnections) {
+                    const zoneServerId = this._zoneConnections[zoneClientId];
+                    if (!this._globalBroadcastAllowedZones.has(zoneServerId))
+                      continue;
+                    const zoneClient =
+                      this._zoneConnectionManager._clients[zoneClientId];
+                    if (zoneClient) {
+                      this._zoneConnectionManager.sendData(
+                        zoneClient,
+                        "GlobalBroadcastForward",
+                        {
+                          broadcastType,
+                          initiatorName,
+                          message,
+                          originServerId,
+                          rewardIds
+                        }
+                      );
+                    }
+                  }
+                  break;
+                }
                 default:
                   console.log(
                     `Unhandled ZoneConnection packet: ${packet.name}`
@@ -361,6 +406,7 @@ export class LoginServer extends EventEmitter {
 
       this._zoneConnectionManager.start();
     }
+    this.pluginManager.initializePlugins(this);
   }
 
   async getGuidByAuthkey(authKey: string): Promise<string | undefined> {
@@ -497,6 +543,9 @@ export class LoginServer extends EventEmitter {
     // In case of shitty json formatting
     sessionIdString = sessionIdString.replaceAll("\\", "");
     try {
+      if (sessionIdString.length > 100) {
+        throw new Error("sessionIdString too long");
+      }
       const sessionIdObject = JSON.parse(sessionIdString);
       authKey = sessionIdObject.sessionId;
       gameVersion = sessionIdObject.gameVersion;
@@ -539,7 +588,7 @@ export class LoginServer extends EventEmitter {
             }
           }
         ],
-        unknownArray2: [],
+        errorDetails: [],
         ipCountryCode: "US",
         applicationPayload: {
           unknownArray1: [],
@@ -572,56 +621,61 @@ export class LoginServer extends EventEmitter {
       case "nameValidationRequest":
         const characterName = String(packet.result.characterName);
         let status = isValidCharacterName(characterName);
-        if (!this._soloMode) {
-          // So we don't care about the case
-          const characterNameRegex = new RegExp(`^${characterName}$`, "i");
-          const blackListedEntries = await this._db
-            .collection(DB_COLLECTIONS.BLACK_LIST_ENTRIES)
-            .aggregate([
-              {
-                $match: {
-                  $or: [
-                    {
-                      IGNORE_SUBSTRING_CHECKS: 0,
-                      $expr: {
-                        $gte: [
-                          {
-                            $indexOfCP: [
-                              { $toLower: characterName },
-                              { $toLower: "$WORD" }
-                            ]
-                          },
-                          0
-                        ]
+        if (!this._soloMode && status != NAME_VALIDATION_STATUS.INVALID) {
+          try {
+            // So we don't care about the case
+            const characterNameRegex = new RegExp(`^${characterName}$`, "i");
+            const blackListedEntries = await this._db
+              .collection(DB_COLLECTIONS.BLACK_LIST_ENTRIES)
+              .aggregate([
+                {
+                  $match: {
+                    $or: [
+                      {
+                        IGNORE_SUBSTRING_CHECKS: 0,
+                        $expr: {
+                          $gte: [
+                            {
+                              $indexOfCP: [
+                                { $toLower: characterName },
+                                { $toLower: "$WORD" }
+                              ]
+                            },
+                            0
+                          ]
+                        }
+                      },
+                      {
+                        REQUIRES_EXACT_MATCH: 1,
+                        WORD: characterNameRegex
                       }
-                    },
-                    {
-                      REQUIRES_EXACT_MATCH: 1,
-                      WORD: characterNameRegex
-                    }
-                  ]
+                    ]
+                  }
                 }
+              ])
+              .toArray();
+            if (blackListedEntries && blackListedEntries.length) {
+              const blackListedEntry = blackListedEntries[0];
+              if (blackListedEntry.FILTER_TYPE === 3) {
+                status = NAME_VALIDATION_STATUS.RESERVED;
+              } else {
+                status = NAME_VALIDATION_STATUS.PROFANE;
               }
-            ])
-            .toArray();
-          if (blackListedEntries && blackListedEntries.length) {
-            const blackListedEntry = blackListedEntries[0];
-            if (blackListedEntry.FILTER_TYPE === 3) {
-              status = NAME_VALIDATION_STATUS.RESERVED;
             } else {
-              status = NAME_VALIDATION_STATUS.PROFANE;
+              const duplicateCharacter = await this._db
+                .collection(DB_COLLECTIONS.CHARACTERS_LIGHT)
+                .findOne({
+                  "payload.name": { $regex: characterNameRegex },
+                  serverId: packet.serverId,
+                  status: 1
+                });
+              if (duplicateCharacter) {
+                status = NAME_VALIDATION_STATUS.TAKEN;
+              }
             }
-          } else {
-            const duplicateCharacter = await this._db
-              .collection(DB_COLLECTIONS.CHARACTERS_LIGHT)
-              .findOne({
-                "payload.name": { $regex: characterNameRegex },
-                serverId: packet.serverId,
-                status: 1
-              });
-            if (duplicateCharacter) {
-              status = NAME_VALIDATION_STATUS.TAKEN;
-            }
+          } catch (e) {
+            console.error(e);
+            status = NAME_VALIDATION_STATUS.INVALID;
           }
         }
         const response = {
@@ -712,11 +766,15 @@ export class LoginServer extends EventEmitter {
   async sendFileHashes(serverId: number) {
     if (this._soloMode) return;
 
-    this._zoneConnectionManager.sendData(
-      this.getZoneConnectionClient(serverId),
-      "OverrideAllowedFileHashes",
-      { types: [defaultHashes] }
-    );
+    const client = this.getZoneConnectionClient(serverId);
+
+    if (client) {
+      this._zoneConnectionManager.sendData(
+        client,
+        "OverrideAllowedFileHashes",
+        { types: [defaultHashes] }
+      );
+    }
   }
 
   async updateServerStatus(serverId: number, status: boolean) {
@@ -821,9 +879,16 @@ export class LoginServer extends EventEmitter {
           gameVersion: client.gameVersion
         })
         .toArray();
+      const loginSessionId = await this.getGuidByAuthkey(client.authKey);
+      const isAdmin = Boolean(
+        loginSessionId &&
+        (await this._db
+          .collection(DB_COLLECTIONS.ADMINS)
+          .findOne({ sessionId: loginSessionId, permissionLevel: { $ne: 0 } }))
+      );
       servers = servers
         .map((server: GameServer) => {
-          if (server.locked) {
+          if (server.locked && !isAdmin) {
             server.allowedAccess = false;
           }
           return server;
@@ -835,17 +900,23 @@ export class LoginServer extends EventEmitter {
       switch (client.gameVersion) {
         default:
         case GAME_VERSIONS.H1Z1_15janv_2015: {
-          const SoloServer = require("../../../data/2015/sampleData/single_player_server.json");
+          const SoloServer = PluginManager.loadServerData(
+            "2015/sampleData/single_player_server.json"
+          );
           servers = [SoloServer];
           break;
         }
         case GAME_VERSIONS.H1Z1_6dec_2016: {
-          const SoloServer = require("../../../data/2016/sampleData/single_player_server.json");
+          const SoloServer = PluginManager.loadServerData(
+            "2016/sampleData/single_player_server.json"
+          );
           servers = [SoloServer];
           break;
         }
         case GAME_VERSIONS.H1Z1_KOTK_PS3: {
-          const SoloServer = require("../../../data/kotk/sampleData/single_player_server.json");
+          const SoloServer = PluginManager.loadServerData(
+            "kotk/sampleData/single_player_server.json"
+          );
           servers = [SoloServer];
           break;
         }
@@ -1306,19 +1377,22 @@ export class LoginServer extends EventEmitter {
     return characterLoginInfo.status !== LoginStatus.REJECTED;
   }
 
-  getZoneConnectionClient(serverId: number): LZConnectionClient | undefined {
+  getZoneConnectionClient(serverId: number): LZConnectionClient | null {
     const zoneConnectionIndex = Object.values(this._zoneConnections).findIndex(
       (e) => e === serverId
     );
     const zoneConnectionString = Object.keys(this._zoneConnections)[
       zoneConnectionIndex
     ];
-    const [address, port] = zoneConnectionString.split(":");
+    if (zoneConnectionString) {
+      const [address, port] = zoneConnectionString.split(":");
 
-    const LZClient = new LZConnectionClient({ address, port: Number(port) });
-    // Hack since the loginserver doesn't have a serverId
-    LZClient.serverId = MAX_UINT32;
-    return LZClient;
+      const LZClient = new LZConnectionClient({ address, port: Number(port) });
+      // Hack since the loginserver doesn't have a serverId
+      LZClient.serverId = MAX_UINT32;
+      return LZClient;
+    }
+    return null;
   }
 
   async askZone(
@@ -1330,17 +1404,21 @@ export class LoginServer extends EventEmitter {
       this._internalReqCount++;
       const reqId = this._internalReqCount;
       try {
-        this._zoneConnectionManager.sendData(
-          this.getZoneConnectionClient(serverId),
-          packetName,
-          { reqId: reqId, ...packetObj }
-        );
-        this._pendingInternalReq[reqId] = resolve;
-        this._pendingInternalReqTimeouts[reqId] = setTimeout(() => {
-          delete this._pendingInternalReq[reqId];
-          delete this._pendingInternalReqTimeouts[reqId];
+        const client = this.getZoneConnectionClient(serverId);
+        if (client) {
+          this._zoneConnectionManager.sendData(client, packetName, {
+            reqId: reqId,
+            ...packetObj
+          });
+          this._pendingInternalReq[reqId] = resolve;
+          this._pendingInternalReqTimeouts[reqId] = setTimeout(() => {
+            delete this._pendingInternalReq[reqId];
+            delete this._pendingInternalReqTimeouts[reqId];
+            resolve(0);
+          }, 5000);
+        } else {
           resolve(0);
-        }, 5000);
+        }
       } catch (e) {
         console.error(e);
         resolve(0);
@@ -1359,7 +1437,9 @@ export class LoginServer extends EventEmitter {
     let sampleCharacter, newCharacter;
     switch (client.gameVersion) {
       case GAME_VERSIONS.H1Z1_15janv_2015: {
-        sampleCharacter = require("../../../data/2015/sampleData/single_player_character.json");
+        sampleCharacter = PluginManager.loadServerData(
+          "2015/sampleData/single_player_character.json"
+        );
         newCharacter = _.cloneDeep(sampleCharacter) as any;
         newCharacter.payload.name = characterName;
         break;
@@ -1367,7 +1447,9 @@ export class LoginServer extends EventEmitter {
       default:
       case GAME_VERSIONS.H1Z1_KOTK_PS3:
       case GAME_VERSIONS.H1Z1_6dec_2016: {
-        sampleCharacter = require("../../../data/2016/sampleData/character.json");
+        sampleCharacter = PluginManager.loadServerData(
+          "2016/sampleData/character.json"
+        );
         newCharacter = _.cloneDeep(sampleCharacter) as any;
         newCharacter.characterName = characterName;
         break;
@@ -1394,6 +1476,7 @@ export class LoginServer extends EventEmitter {
             ...newCharacter,
             actorModelId: characterModelData.modelId,
             headActor: characterModelData.headActor,
+            eyeActor: characterModelData.eyeActor,
             gender: payload.gender,
             hairModel: characterModelData.hairModel
           };
@@ -1410,6 +1493,7 @@ export class LoginServer extends EventEmitter {
             ...newCharacter,
             actorModelId: characterModelData.modelId,
             headActor: characterModelData.headActor,
+            eyeActor: characterModelData.eyeActor,
             gender: payload.gender,
             hairModel: characterModelData.hairModel
           };
@@ -1573,5 +1657,8 @@ export class LoginServer extends EventEmitter {
 if (process.env.VSCODE_DEBUG === "true") {
   const PackageSetting = require("../../../package.json");
   process.env.H1Z1_SERVER_VERSION = PackageSetting.version;
-  new LoginServer(1115, process.env.MONGO_URL).start();
+  new LoginServer(
+    Number(process.env.SERVER_BIND_PORT) || 1115,
+    process.env.MONGO_URL
+  ).start();
 }
